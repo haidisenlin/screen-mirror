@@ -3,6 +3,7 @@
 // Framework linking is declared here; the linker picks them up automatically
 // because this module is compiled only on macOS (see mod.rs cfg gate).
 
+#[allow(clippy::duplicated_attributes)]
 #[link(name = "Metal", kind = "framework")]
 #[link(name = "QuartzCore", kind = "framework")]
 #[link(name = "CoreVideo", kind = "framework")]
@@ -68,22 +69,29 @@ unsafe extern "C" {
 }
 
 // ── AppKit FFI — attach a CALayer to an NSView ────────────────────────────────
+//
+// On ARM64, objc_msgSend is NOT variadic — it uses the standard calling
+// convention. Declaring it as `...` causes Rust to use the C variadic ABI,
+// which passes arguments differently on aarch64 and corrupts pointer args.
+// We use typed function pointer casts instead.
 
 unsafe extern "C" {
     fn objc_msgSend(receiver: *mut AnyObject, sel: *const c_void, ...) -> *mut c_void;
     fn sel_registerName(name: *const u8) -> *const c_void;
 }
 
-// Send a single-pointer-arg message that returns void.
-unsafe fn msg_send_ptr_void(obj: *mut AnyObject, sel_name: &[u8], arg: *mut c_void) {
-    let sel = unsafe { sel_registerName(sel_name.as_ptr()) };
-    let _: *mut c_void = unsafe { objc_msgSend(obj, sel, arg) };
+unsafe fn msg_send_set_layer(obj: *mut AnyObject, layer: *mut c_void) {
+    let sel = unsafe { sel_registerName(c"setLayer:".as_ptr().cast()) };
+    let func: unsafe extern "C" fn(*mut AnyObject, *const c_void, *mut c_void) =
+        unsafe { std::mem::transmute(objc_msgSend as *const c_void) };
+    unsafe { func(obj, sel, layer) };
 }
 
-// Send a BOOL argument message that returns void.
-unsafe fn msg_send_bool_void(obj: *mut AnyObject, sel_name: &[u8], arg: bool) {
-    let sel = unsafe { sel_registerName(sel_name.as_ptr()) };
-    let _: *mut c_void = unsafe { objc_msgSend(obj, sel, arg as u8 as std::ffi::c_uint) };
+unsafe fn msg_send_set_wants_layer(obj: *mut AnyObject, val: bool) {
+    let sel = unsafe { sel_registerName(c"setWantsLayer:".as_ptr().cast()) };
+    let func: unsafe extern "C" fn(*mut AnyObject, *const c_void, i8) =
+        unsafe { std::mem::transmute(objc_msgSend as *const c_void) };
+    unsafe { func(obj, sel, val as i8) };
 }
 
 // ── MetalRenderer ─────────────────────────────────────────────────────────────
@@ -128,9 +136,9 @@ impl MetalRenderer {
 
         // Attach layer to the NSView.
         unsafe {
-            msg_send_bool_void(ns_view, b"setWantsLayer:\0", true);
+            msg_send_set_wants_layer(ns_view, true);
             let layer_ptr = Retained::as_ptr(&metal_layer) as *mut c_void;
-            msg_send_ptr_void(ns_view, b"setLayer:\0", layer_ptr);
+            msg_send_set_layer(ns_view, layer_ptr);
         }
 
         // ── Create command queue ──────────────────────────────────────────────
@@ -162,11 +170,10 @@ impl MetalRenderer {
         })
     }
 
-    /// Render a decoded CVPixelBuffer to the window.
+    /// # Safety
     ///
-    /// `pixel_buffer` must be a valid `CVPixelBufferRef` (as `*mut c_void`).
-    /// The pixel buffer must be in BGRA8 format (the decoder outputs BGRA).
-    pub fn render_pixel_buffer(&mut self, pixel_buffer: *mut c_void) -> anyhow::Result<()> {
+    /// `pixel_buffer` must be a valid `CVPixelBufferRef` in BGRA8 format.
+    pub unsafe fn render_pixel_buffer(&mut self, pixel_buffer: *mut c_void) -> anyhow::Result<()> {
         let width = unsafe { CVPixelBufferGetWidth(pixel_buffer) };
         let height = unsafe { CVPixelBufferGetHeight(pixel_buffer) };
         if width == 0 || height == 0 {
@@ -181,7 +188,7 @@ impl MetalRenderer {
                 self.texture_cache,
                 pixel_buffer,
                 std::ptr::null_mut(),
-                MTLPixelFormat::BGRA8Unorm.0 as usize, // 80 = MTLPixelFormatBGRA8Unorm
+                MTLPixelFormat::BGRA8Unorm.0,
                 width,
                 height,
                 0, // plane index

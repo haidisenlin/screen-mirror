@@ -3,6 +3,7 @@
 // Framework linking is declared here; the linker picks them up automatically
 // because this module is compiled only on macOS (see mod.rs cfg gate).
 
+#[allow(clippy::duplicated_attributes)]
 #[link(name = "VideoToolbox", kind = "framework")]
 #[link(name = "CoreMedia", kind = "framework")]
 #[link(name = "CoreFoundation", kind = "framework")]

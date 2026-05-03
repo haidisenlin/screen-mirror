@@ -56,7 +56,7 @@ fn main() -> Result<()> {
         encoder.encode_pixel_buffer(pixel_buffer.as_ptr(), ts_ns)?;
         frame_count += 1;
 
-        if frame_count % 60 == 0 {
+        if frame_count.is_multiple_of(60) {
             tracing::info!("encoded {frame_count} frames");
         }
 

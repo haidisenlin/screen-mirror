@@ -20,6 +20,7 @@ struct App {
     decoder: VTDecoder,
     recv_buf: Vec<u8>,
     last_seq: Option<u16>,
+    frames_rendered: u64,
 }
 
 impl ApplicationHandler for App {
@@ -28,8 +29,22 @@ impl ApplicationHandler for App {
             let attrs = Window::default_attributes()
                 .with_title("Screen Mirror Receiver")
                 .with_inner_size(winit::dpi::LogicalSize::new(1920u32, 1080u32));
-            let window = event_loop.create_window(attrs).unwrap();
-            self.renderer = Some(MetalRenderer::new(&window).unwrap());
+            let window = match event_loop.create_window(attrs) {
+                Ok(w) => w,
+                Err(e) => {
+                    tracing::error!("failed to create window: {e}");
+                    event_loop.exit();
+                    return;
+                }
+            };
+            match MetalRenderer::new(&window) {
+                Ok(r) => self.renderer = Some(r),
+                Err(e) => {
+                    tracing::error!("failed to create Metal renderer: {e}");
+                    event_loop.exit();
+                    return;
+                }
+            }
             self.window = Some(window);
         }
     }
@@ -63,11 +78,11 @@ impl ApplicationHandler for App {
                                 let ts = pkt.header.timestamp as u64;
                                 self.depacketizer.push(&pkt);
 
-                                if marker {
-                                    if let Some(nal) = self.depacketizer.pop_nal() {
-                                        let _ = self.decoder.decode_nal(&nal, ts);
-                                    }
-                                }
+                                if marker
+                                    && let Some(nal) = self.depacketizer.pop_nal()
+                                        && let Err(e) = self.decoder.decode_nal(&nal, ts) {
+                                            tracing::warn!("decode error: {e}");
+                                        }
                             }
                         }
                         Err(e) => {
@@ -87,11 +102,14 @@ impl ApplicationHandler for App {
                 }
 
                 // Render latest decoded frame (Drop handles CFRelease)
-                if let Some(frame) = self.decoder.next_frame() {
-                    if let Some(renderer) = &mut self.renderer {
-                        let _ = renderer.render_pixel_buffer(frame.pixel_buffer);
+                if let Some(frame) = self.decoder.next_frame()
+                    && let Some(renderer) = &mut self.renderer {
+                        let _ = unsafe { renderer.render_pixel_buffer(frame.pixel_buffer) };
+                        self.frames_rendered += 1;
+                        if self.frames_rendered.is_multiple_of(60) {
+                            tracing::info!("rendered {} frames", self.frames_rendered);
+                        }
                     }
-                }
 
                 if let Some(window) = &self.window {
                     window.request_redraw();
@@ -136,6 +154,7 @@ fn main() -> Result<()> {
         decoder,
         recv_buf: vec![0u8; 2000],
         last_seq: None,
+        frames_rendered: 0,
     };
 
     let event_loop = EventLoop::new()?;

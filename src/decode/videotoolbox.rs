@@ -3,6 +3,7 @@
 // Framework linking is declared here; the linker picks them up automatically
 // because this module is compiled only on macOS (see mod.rs cfg gate).
 
+#[allow(clippy::duplicated_attributes)]
 #[link(name = "VideoToolbox", kind = "framework")]
 #[link(name = "CoreMedia", kind = "framework")]
 #[link(name = "CoreFoundation", kind = "framework")]
@@ -120,6 +121,7 @@ const K_CF_NUMBER_SINT32_TYPE: i32 = 3;
 unsafe extern "C" {
     // CoreFoundation
     static kCFAllocatorDefault: CFAllocatorRef;
+    static kCFAllocatorNull: CFAllocatorRef;
     static kCFBooleanTrue: CFBooleanRef;
     static kCFTypeDictionaryKeyCallBacks: c_void;
     static kCFTypeDictionaryValueCallBacks: c_void;
@@ -483,11 +485,11 @@ impl VTDecoder {
                 kCFAllocatorDefault,
                 avcc_buf.as_mut_ptr() as *mut c_void,
                 avcc_len,
-                std::ptr::null_mut(), // kCFAllocatorNull — we manage the memory
-                std::ptr::null(),     // custom block source
-                0,                    // offset to data
-                avcc_len,             // data length
-                0,                    // flags
+                kCFAllocatorNull,  // don't deallocate — we own the memory
+                std::ptr::null(),  // custom block source
+                0,                 // offset to data
+                avcc_len,          // data length
+                0,                 // flags
                 &mut block_buf,
             )
         };
@@ -532,7 +534,7 @@ impl VTDecoder {
             VTDecompressionSessionDecodeFrame(
                 self.session,
                 sbuf,
-                2, // kVTDecodeFrame_EnableSynchronousDecompression
+                0, // synchronous decode (RealTime property is set), output frame
                 timestamp as usize as *mut c_void, // source_frame_ref_con carries timestamp
                 &mut info_flags,
             )

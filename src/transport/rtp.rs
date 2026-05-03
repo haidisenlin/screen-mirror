@@ -153,6 +153,7 @@ impl H264Packetizer {
     }
 }
 
+#[derive(Default)]
 pub struct H264Depacketizer {
     buffer: Vec<u8>,
     in_fragment: bool,
