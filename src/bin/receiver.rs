@@ -152,7 +152,7 @@ fn main() -> Result<()> {
         udp,
         depacketizer: H264Depacketizer::new(),
         decoder,
-        recv_buf: vec![0u8; 2000],
+        recv_buf: vec![0u8; 65536],
         last_seq: None,
         frames_rendered: 0,
     };

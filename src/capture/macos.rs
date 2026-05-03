@@ -8,12 +8,17 @@ use screencapturekit::prelude::{
 
 use super::CaptureConfig;
 
+unsafe extern "C" {
+    fn CGDisplayPixelsWide(display: u32) -> usize;
+    fn CGDisplayPixelsHigh(display: u32) -> usize;
+    fn CGMainDisplayID() -> u32;
+}
+
 struct FrameSender(SyncSender<CMSampleBuffer>);
 
 impl SCStreamOutputTrait for FrameSender {
     fn did_output_sample_buffer(&self, sample: CMSampleBuffer, of_type: SCStreamOutputType) {
         if of_type == SCStreamOutputType::Screen {
-            // Drop the frame silently if the channel is full — the consumer is behind.
             let _ = self.0.try_send(sample);
         }
     }
@@ -23,14 +28,15 @@ impl SCStreamOutputTrait for FrameSender {
 pub struct MacOsCapture {
     stream: SCStream,
     rx: Receiver<CMSampleBuffer>,
+    width: u32,
+    height: u32,
 }
 
 impl MacOsCapture {
-    /// Start capturing the primary display with the given configuration.
+    /// Start capturing the primary display.
     ///
-    /// # Errors
-    ///
-    /// Returns an error if no display is found, or if the stream fails to start.
+    /// If `config.width` and `config.height` are 0, captures at the display's
+    /// native pixel resolution (Retina-aware).
     pub fn new(config: &CaptureConfig) -> anyhow::Result<Self> {
         let content = SCShareableContent::get()?;
         let display = content
@@ -39,14 +45,30 @@ impl MacOsCapture {
             .next()
             .ok_or_else(|| anyhow::anyhow!("no display found"))?;
 
+        let (cap_w, cap_h) = if config.width == 0 || config.height == 0 {
+            let display_id = display.display_id();
+            let pw = unsafe { CGDisplayPixelsWide(display_id) } as u32;
+            let ph = unsafe { CGDisplayPixelsHigh(display_id) } as u32;
+            if pw == 0 || ph == 0 {
+                let fallback_id = unsafe { CGMainDisplayID() };
+                let pw = unsafe { CGDisplayPixelsWide(fallback_id) } as u32;
+                let ph = unsafe { CGDisplayPixelsHigh(fallback_id) } as u32;
+                (pw.max(1920), ph.max(1080))
+            } else {
+                (pw, ph)
+            }
+        } else {
+            (config.width, config.height)
+        };
+
         let filter = SCContentFilter::create()
             .with_display(&display)
             .with_excluding_windows(&[])
             .build();
 
         let sc_config = SCStreamConfiguration::new()
-            .with_width(config.width)
-            .with_height(config.height)
+            .with_width(cap_w)
+            .with_height(cap_h)
             .with_fps(config.fps);
 
         let (tx, rx) = mpsc::sync_channel(2);
@@ -58,12 +80,25 @@ impl MacOsCapture {
 
         stream.start_capture()?;
 
-        Ok(Self { stream, rx })
+        Ok(Self {
+            stream,
+            rx,
+            width: cap_w,
+            height: cap_h,
+        })
+    }
+
+    /// The actual capture width in pixels.
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    /// The actual capture height in pixels.
+    pub fn height(&self) -> u32 {
+        self.height
     }
 
     /// Block until the next frame arrives and return it.
-    ///
-    /// Returns `None` when the capture stream has stopped.
     pub fn next_frame(&self) -> Option<CMSampleBuffer> {
         self.rx.recv().ok()
     }
@@ -71,7 +106,6 @@ impl MacOsCapture {
 
 impl Drop for MacOsCapture {
     fn drop(&mut self) {
-        // Best-effort stop; ignore errors on teardown.
         let _ = self.stream.stop_capture();
     }
 }

@@ -21,17 +21,25 @@ fn main() -> Result<()> {
 
     tracing::info!("sender starting, target={target}");
 
+    // width=0, height=0 → auto-detect native display resolution
     let capture = MacOsCapture::new(&CaptureConfig {
         fps: 60,
-        width: 1920,
-        height: 1080,
+        width: 0,
+        height: 0,
     })?;
 
+    let cap_w = capture.width();
+    let cap_h = capture.height();
+    let pixels = cap_w as u64 * cap_h as u64;
+    // Scale bitrate proportionally: 10 Mbps baseline for 1920×1080
+    let bitrate = (pixels * 10_000_000 / (1920 * 1080)) as u32;
+    tracing::info!("capturing at {cap_w}x{cap_h}, bitrate={bitrate}");
+
     let mut encoder = VTEncoder::new(&EncoderConfig {
-        width: 1920,
-        height: 1080,
+        width: cap_w,
+        height: cap_h,
         fps: 60,
-        bitrate: 10_000_000,
+        bitrate,
     })?;
 
     let mut packetizer = H264Packetizer::new(96, 0x12345678, 1400);
