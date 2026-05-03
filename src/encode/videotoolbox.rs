@@ -550,6 +550,11 @@ impl VTEncoder {
     pub fn next_encoded(&self) -> Option<EncodedPacket> {
         self.rx.try_recv().ok()
     }
+
+    /// Encode a CapturedFrame (cross-platform API).
+    pub fn encode_frame(&mut self, frame: &crate::capture::CapturedFrame) -> anyhow::Result<()> {
+        self.encode_pixel_buffer(frame.native, frame.timestamp_ns)
+    }
 }
 
 impl Drop for VTEncoder {
