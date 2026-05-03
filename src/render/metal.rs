@@ -124,7 +124,7 @@ impl MetalRenderer {
         let metal_layer = CAMetalLayer::new();
         metal_layer.setDevice(Some(&device));
         metal_layer.setPixelFormat(MTLPixelFormat::BGRA8Unorm);
-        metal_layer.setFramebufferOnly(true);
+        metal_layer.setFramebufferOnly(false);
 
         // Attach layer to the NSView.
         unsafe {

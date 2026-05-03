@@ -280,7 +280,7 @@ fn parse_avcc_nal_units(data: &[u8], nal_header_len: usize) -> Vec<Vec<u8>> {
 
 unsafe extern "C" fn compression_output_callback(
     output_callback_ref_con: *mut c_void,
-    _source_frame_ref_con: *mut c_void,
+    source_frame_ref_con: *mut c_void,
     status: OSStatus,
     _info_flags: VTEncodeInfoFlags,
     sample_buffer: CMSampleBufferRef,
@@ -289,12 +289,11 @@ unsafe extern "C" fn compression_output_callback(
         return;
     }
 
-    // SAFETY: refcon is a raw pointer to a SyncSender we Box'd when creating
-    // the session. It is valid for the lifetime of the session.
     let tx = unsafe { &*(output_callback_ref_con as *const SyncSender<EncodedPacket>) };
+    let timestamp = source_frame_ref_con as u64;
 
-    if let Some(p) = unsafe { extract_encoded_packet(sample_buffer) } {
-        // Drop silently if the receiver is gone or the channel is full.
+    if let Some(mut p) = unsafe { extract_encoded_packet(sample_buffer) } {
+        p.timestamp = timestamp;
         let _ = tx.try_send(p);
     }
 }
@@ -520,7 +519,7 @@ impl VTEncoder {
                 pts,
                 dur,
                 std::ptr::null_mut(), // frame properties
-                std::ptr::null_mut(), // source frame ref con
+                timestamp as usize as *mut c_void, // pass timestamp through refcon
                 &mut flags,
             )
         };

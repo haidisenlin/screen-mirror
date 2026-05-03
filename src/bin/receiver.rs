@@ -86,19 +86,10 @@ impl ApplicationHandler for App {
                     }
                 }
 
-                // Render latest decoded frame
+                // Render latest decoded frame (Drop handles CFRelease)
                 if let Some(frame) = self.decoder.next_frame() {
                     if let Some(renderer) = &mut self.renderer {
                         let _ = renderer.render_pixel_buffer(frame.pixel_buffer);
-                    }
-                    // CFRelease the pixel buffer — DecodedFrame says caller owns it
-                    unsafe {
-                        unsafe extern "C" {
-                            fn CFRelease(cf: *mut std::ffi::c_void);
-                        }
-                        if !frame.pixel_buffer.is_null() {
-                            CFRelease(frame.pixel_buffer);
-                        }
                     }
                 }
 

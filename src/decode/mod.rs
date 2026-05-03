@@ -7,6 +7,19 @@ pub struct DecoderConfig {
 }
 
 pub struct DecodedFrame {
-    pub pixel_buffer: *mut std::ffi::c_void, // CVPixelBufferRef — caller must CFRelease
+    pub pixel_buffer: *mut std::ffi::c_void, // CVPixelBufferRef
     pub timestamp: u64,
+}
+
+impl Drop for DecodedFrame {
+    fn drop(&mut self) {
+        if !self.pixel_buffer.is_null() {
+            unsafe {
+                unsafe extern "C" {
+                    fn CFRelease(cf: *mut std::ffi::c_void);
+                }
+                CFRelease(self.pixel_buffer);
+            }
+        }
+    }
 }

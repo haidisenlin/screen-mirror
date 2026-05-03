@@ -532,7 +532,7 @@ impl VTDecoder {
             VTDecompressionSessionDecodeFrame(
                 self.session,
                 sbuf,
-                0, // decode flags (0 = asynchronous, real-time)
+                2, // kVTDecodeFrame_EnableSynchronousDecompression
                 timestamp as usize as *mut c_void, // source_frame_ref_con carries timestamp
                 &mut info_flags,
             )
