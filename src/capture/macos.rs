@@ -14,24 +14,23 @@ unsafe extern "C" {
     fn CGMainDisplayID() -> u32;
 }
 
-struct FrameSender {
-    video_tx: SyncSender<CMSampleBuffer>,
-    audio_tx: Option<SyncSender<CMSampleBuffer>>,
+struct VideoHandler {
+    tx: SyncSender<CMSampleBuffer>,
 }
 
-impl SCStreamOutputTrait for FrameSender {
-    fn did_output_sample_buffer(&self, sample: CMSampleBuffer, of_type: SCStreamOutputType) {
-        match of_type {
-            SCStreamOutputType::Screen => {
-                let _ = self.video_tx.try_send(sample);
-            }
-            SCStreamOutputType::Audio => {
-                if let Some(tx) = &self.audio_tx {
-                    let _ = tx.try_send(sample);
-                }
-            }
-            _ => {}
-        }
+impl SCStreamOutputTrait for VideoHandler {
+    fn did_output_sample_buffer(&self, sample: CMSampleBuffer, _of_type: SCStreamOutputType) {
+        let _ = self.tx.try_send(sample);
+    }
+}
+
+struct AudioHandler {
+    tx: SyncSender<CMSampleBuffer>,
+}
+
+impl SCStreamOutputTrait for AudioHandler {
+    fn did_output_sample_buffer(&self, sample: CMSampleBuffer, _of_type: SCStreamOutputType) {
+        let _ = self.tx.try_send(sample);
     }
 }
 
@@ -78,26 +77,45 @@ impl MacOsCapture {
             .with_excluding_windows(&[])
             .build();
 
-        let sc_config = SCStreamConfiguration::new()
+        let mut sc_config = SCStreamConfiguration::new()
             .with_width(cap_w)
             .with_height(cap_h)
             .with_fps(config.fps);
 
+        if config.capture_audio {
+            sc_config = sc_config
+                .with_captures_audio(true)
+                .with_sample_rate(48000)
+                .with_channel_count(2);
+        }
+
         let (video_tx, video_rx) = mpsc::sync_channel(2);
 
-        let (audio_tx, audio_rx) = if config.capture_audio {
+        let audio_rx = if config.capture_audio {
             let (tx, rx) = mpsc::sync_channel(8);
-            (Some(tx), Some(rx))
+            let mut stream = SCStream::new(&filter, &sc_config);
+            stream
+                .add_output_handler(VideoHandler { tx: video_tx }, SCStreamOutputType::Screen)
+                .ok_or_else(|| anyhow::anyhow!("failed to add video output handler"))?;
+            stream
+                .add_output_handler(AudioHandler { tx }, SCStreamOutputType::Audio)
+                .ok_or_else(|| anyhow::anyhow!("failed to add audio output handler"))?;
+            stream.start_capture()?;
+            return Ok(Self {
+                stream,
+                video_rx,
+                audio_rx: Some(rx),
+                width: cap_w,
+                height: cap_h,
+            });
         } else {
-            (None, None)
+            None
         };
-
-        let sender = FrameSender { video_tx, audio_tx };
 
         let mut stream = SCStream::new(&filter, &sc_config);
         stream
-            .add_output_handler(sender, SCStreamOutputType::Screen)
-            .ok_or_else(|| anyhow::anyhow!("failed to add output handler"))?;
+            .add_output_handler(VideoHandler { tx: video_tx }, SCStreamOutputType::Screen)
+            .ok_or_else(|| anyhow::anyhow!("failed to add video output handler"))?;
 
         stream.start_capture()?;
 
