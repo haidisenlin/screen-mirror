@@ -17,6 +17,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 crossbeam-channel = "0.5"
 anyhow = "1"
+audiopus = "0.3.0-rc.0"
 tokio = { version = "1", features = ["rt", "net", "macros"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

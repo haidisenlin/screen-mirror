@@ -1,5 +1,7 @@
+pub mod audio;
 pub mod capture;
-pub mod encode;
 pub mod decode;
-pub mod transport;
+pub mod encode;
 pub mod render;
+pub mod sync;
+pub mod transport;
