@@ -268,73 +268,112 @@ fn main() -> Result<()> {
         .to_string_lossy()
         .to_string();
 
-    // Generate PIN and advertise
-    let pin = pairing::generate_pin();
-    tracing::info!("========================================");
-    tracing::info!("  PIN: {pin}");
-    tracing::info!("========================================");
-
     let (advertiser, listener) = Advertiser::new(&device_name)?;
-    tracing::info!("waiting for connection on port {}...", advertiser.port());
 
-    // Accept TCP and pair
-    listener.set_nonblocking(false)?;
-    let (mut tcp_stream, peer_addr) = listener.accept()?;
-    tracing::info!("connection from {peer_addr}");
-    let _ = advertiser.unregister();
+    // Loop until we successfully pair and negotiate
+    let (media_cipher, params, udp_socket) = loop {
+        let pin = pairing::generate_pin();
+        tracing::info!("========================================");
+        tracing::info!("  PIN: {pin}");
+        tracing::info!("========================================");
+        tracing::info!("waiting for connection on port {}...", advertiser.port());
 
-    tcp_stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+        listener.set_nonblocking(false)?;
+        let (mut tcp_stream, peer_addr) = listener.accept()?;
+        tracing::info!("connection from {peer_addr}");
+        let _ = advertiser.unregister();
 
-    let mut len_buf = [0u8; 4];
-    tcp_stream.read_exact(&mut len_buf)?;
-    let pa_len = u32::from_be_bytes(len_buf) as usize;
-    let mut msg_a = vec![0u8; pa_len];
-    tcp_stream.read_exact(&mut msg_a)?;
+        tcp_stream.set_read_timeout(Some(Duration::from_secs(10)))?;
 
-    let (msg_b, state) = pairing::receiver_start(&pin);
-    tcp_stream.write_all(&(msg_b.len() as u32).to_be_bytes())?;
-    tcp_stream.write_all(&msg_b)?;
+        // Read pA
+        let mut len_buf = [0u8; 4];
+        if tcp_stream.read_exact(&mut len_buf).is_err() {
+            tracing::warn!("pairing timeout, restarting");
+            let _ = advertiser.reregister(&device_name);
+            continue;
+        }
+        let pa_len = u32::from_be_bytes(len_buf) as usize;
+        let mut msg_a = vec![0u8; pa_len];
+        if tcp_stream.read_exact(&mut msg_a).is_err() {
+            tracing::warn!("failed to read pairing message, restarting");
+            let _ = advertiser.reregister(&device_name);
+            continue;
+        }
 
-    let keys = pairing::receiver_finish(state, &msg_a)?;
-    tracing::info!("pairing successful");
-    tcp_stream.set_read_timeout(None)?;
+        let (msg_b, state) = pairing::receiver_start(&pin);
+        if tcp_stream.write_all(&(msg_b.len() as u32).to_be_bytes()).is_err()
+            || tcp_stream.write_all(&msg_b).is_err()
+        {
+            tracing::warn!("failed to send pairing response, restarting");
+            let _ = advertiser.reregister(&device_name);
+            continue;
+        }
 
-    // Secure channel + negotiation
-    let mut channel = SecureChannel::new(tcp_stream, &keys.control_key);
-    channel.set_read_timeout(Some(Duration::from_secs(5)))?;
+        let keys = match pairing::receiver_finish(state, &msg_a) {
+            Ok(k) => k,
+            Err(e) => {
+                tracing::warn!("pairing failed: {e}, restarting");
+                let _ = advertiser.reregister(&device_name);
+                continue;
+            }
+        };
+        tracing::info!("pairing successful");
+        tcp_stream.set_read_timeout(None)?;
 
-    let offer_bytes = channel.recv()?.ok_or_else(|| anyhow::anyhow!("closed during negotiation"))?;
-    let offer = match NegotiateMessage::from_bytes(&offer_bytes)? {
-        NegotiateMessage::Offer(o) => o,
-        _ => anyhow::bail!("expected Offer"),
+        // Negotiate
+        let mut channel = SecureChannel::new(tcp_stream, &keys.control_key);
+        channel.set_read_timeout(Some(Duration::from_secs(5)))?;
+
+        let offer_bytes = match channel.recv() {
+            Ok(Some(b)) => b,
+            _ => {
+                tracing::warn!("negotiation failed, restarting");
+                let _ = advertiser.reregister(&device_name);
+                continue;
+            }
+        };
+        let offer = match NegotiateMessage::from_bytes(&offer_bytes) {
+            Ok(NegotiateMessage::Offer(o)) => o,
+            _ => {
+                tracing::warn!("expected Offer, restarting");
+                let _ = advertiser.reregister(&device_name);
+                continue;
+            }
+        };
+
+        let udp_socket = UdpSocket::bind("0.0.0.0:0")?;
+        let receiver_udp_port = udp_socket.local_addr()?.port();
+        udp_socket.set_nonblocking(true)?;
+
+        let answer = Answer {
+            video: AnswerVideo {
+                codec: "h264".to_string(),
+                max_width: 1920,
+                max_height: 1080,
+                max_fps: 60,
+            },
+            audio: AnswerAudio {
+                codec: "opus".to_string(),
+                sample_rate: 48000,
+                channels: 2,
+            },
+            transport: AnswerTransport { udp_port: receiver_udp_port },
+        };
+        if channel.send(&NegotiateMessage::Answer(answer.clone()).to_bytes()).is_err() {
+            tracing::warn!("failed to send answer, restarting");
+            let _ = advertiser.reregister(&device_name);
+            continue;
+        }
+
+        let params = NegotiatedParams::resolve(&offer, &answer);
+        tracing::info!("negotiated: {}x{} @ {}fps", params.video_width, params.video_height, params.video_fps);
+        channel.set_read_timeout(None)?;
+
+        let media_cipher = Cipher::new(&keys.media_key, [0, 0, 0, 1]);
+        break (media_cipher, params, udp_socket);
     };
 
-    let udp_socket = UdpSocket::bind("0.0.0.0:0")?;
-    let receiver_udp_port = udp_socket.local_addr()?.port();
-    udp_socket.set_nonblocking(true)?;
-
-    let answer = Answer {
-        video: AnswerVideo {
-            codec: "h264".to_string(),
-            max_width: 1920,
-            max_height: 1080,
-            max_fps: 60,
-        },
-        audio: AnswerAudio {
-            codec: "opus".to_string(),
-            sample_rate: 48000,
-            channels: 2,
-        },
-        transport: AnswerTransport { udp_port: receiver_udp_port },
-    };
-    channel.send(&NegotiateMessage::Answer(answer.clone()).to_bytes())?;
-    let params = NegotiatedParams::resolve(&offer, &answer);
-    tracing::info!("negotiated: {}x{} @ {}fps", params.video_width, params.video_height, params.video_fps);
-    channel.set_read_timeout(None)?;
-
-    // Set up media decryption
-    let media_cipher = Cipher::new(&keys.media_key, [0, 0, 0, 1]);
-
+    // Once pairing succeeds, set up decoder and run event loop (one-shot)
     let decoder = VTDecoder::new(DecoderConfig {
         width: params.video_width,
         height: params.video_height,
@@ -372,6 +411,5 @@ fn main() -> Result<()> {
 
     let event_loop = EventLoop::new()?;
     event_loop.run_app(&mut app)?;
-
     Ok(())
 }
