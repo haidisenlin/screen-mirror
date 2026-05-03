@@ -14,12 +14,23 @@ unsafe extern "C" {
     fn CGMainDisplayID() -> u32;
 }
 
-struct FrameSender(SyncSender<CMSampleBuffer>);
+struct FrameSender {
+    video_tx: SyncSender<CMSampleBuffer>,
+    audio_tx: Option<SyncSender<CMSampleBuffer>>,
+}
 
 impl SCStreamOutputTrait for FrameSender {
     fn did_output_sample_buffer(&self, sample: CMSampleBuffer, of_type: SCStreamOutputType) {
-        if of_type == SCStreamOutputType::Screen {
-            let _ = self.0.try_send(sample);
+        match of_type {
+            SCStreamOutputType::Screen => {
+                let _ = self.video_tx.try_send(sample);
+            }
+            SCStreamOutputType::Audio => {
+                if let Some(tx) = &self.audio_tx {
+                    let _ = tx.try_send(sample);
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -27,7 +38,8 @@ impl SCStreamOutputTrait for FrameSender {
 /// Owns a live `SCStream` and provides frames one at a time via `next_frame`.
 pub struct MacOsCapture {
     stream: SCStream,
-    rx: Receiver<CMSampleBuffer>,
+    video_rx: Receiver<CMSampleBuffer>,
+    audio_rx: Option<Receiver<CMSampleBuffer>>,
     width: u32,
     height: u32,
 }
@@ -71,18 +83,28 @@ impl MacOsCapture {
             .with_height(cap_h)
             .with_fps(config.fps);
 
-        let (tx, rx) = mpsc::sync_channel(2);
+        let (video_tx, video_rx) = mpsc::sync_channel(2);
+
+        let (audio_tx, audio_rx) = if config.capture_audio {
+            let (tx, rx) = mpsc::sync_channel(8);
+            (Some(tx), Some(rx))
+        } else {
+            (None, None)
+        };
+
+        let sender = FrameSender { video_tx, audio_tx };
 
         let mut stream = SCStream::new(&filter, &sc_config);
         stream
-            .add_output_handler(FrameSender(tx), SCStreamOutputType::Screen)
+            .add_output_handler(sender, SCStreamOutputType::Screen)
             .ok_or_else(|| anyhow::anyhow!("failed to add output handler"))?;
 
         stream.start_capture()?;
 
         Ok(Self {
             stream,
-            rx,
+            video_rx,
+            audio_rx,
             width: cap_w,
             height: cap_h,
         })
@@ -100,7 +122,19 @@ impl MacOsCapture {
 
     /// Block until the next frame arrives and return it.
     pub fn next_frame(&self) -> Option<CMSampleBuffer> {
-        self.rx.recv().ok()
+        self.video_rx.recv().ok()
+    }
+
+    /// Block until the next audio sample arrives and return it.
+    /// Returns `None` immediately if audio capture is disabled.
+    pub fn next_audio(&self) -> Option<CMSampleBuffer> {
+        self.audio_rx.as_ref()?.recv().ok()
+    }
+
+    /// Non-blocking attempt to get the next audio sample.
+    /// Returns `None` if no sample is available or audio capture is disabled.
+    pub fn try_next_audio(&self) -> Option<CMSampleBuffer> {
+        self.audio_rx.as_ref()?.try_recv().ok()
     }
 }
 

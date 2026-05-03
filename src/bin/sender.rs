@@ -26,6 +26,7 @@ fn main() -> Result<()> {
         fps: 60,
         width: 0,
         height: 0,
+        capture_audio: true,
     })?;
 
     let cap_w = capture.width();
