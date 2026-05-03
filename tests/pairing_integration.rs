@@ -6,7 +6,7 @@ use screen_mirror::security::pairing;
 use screen_mirror::security::cipher::Cipher;
 use screen_mirror::security::replay::ReplayWindow;
 use screen_mirror::protocol::session::SecureChannel;
-use screen_mirror::protocol::control::{ControlMessage, DisconnectReason};
+use screen_mirror::protocol::control::ControlMessage;
 use screen_mirror::protocol::negotiate::*;
 
 #[test]
