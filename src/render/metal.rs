@@ -129,10 +129,24 @@ impl MetalRenderer {
             .ok_or_else(|| anyhow::anyhow!("MTLCreateSystemDefaultDevice returned nil"))?;
 
         // ── Create CAMetalLayer and configure it ──────────────────────────────
+        let scale_factor = window.scale_factor();
+        let inner = window.inner_size();
+        let logical_w = inner.width as f64 / scale_factor;
+        let logical_h = inner.height as f64 / scale_factor;
+
         let metal_layer = CAMetalLayer::new();
         metal_layer.setDevice(Some(&device));
         metal_layer.setPixelFormat(MTLPixelFormat::BGRA8Unorm);
         metal_layer.setFramebufferOnly(false);
+        metal_layer.setContentsScale(scale_factor);
+        // Explicit layer hosting doesn't auto-size the layer.
+        metal_layer.setFrame(objc2_core_foundation::CGRect {
+            origin: objc2_core_foundation::CGPoint { x: 0.0, y: 0.0 },
+            size: objc2_core_foundation::CGSize {
+                width: logical_w,
+                height: logical_h,
+            },
+        });
 
         // Attach layer to the NSView.
         unsafe {
@@ -178,6 +192,17 @@ impl MetalRenderer {
         let height = unsafe { CVPixelBufferGetHeight(pixel_buffer) };
         if width == 0 || height == 0 {
             anyhow::bail!("pixel buffer has zero dimension");
+        }
+
+        // Ensure the drawable matches the source video dimensions so the
+        // blit fills the entire drawable. CAMetalLayer handles upscaling to
+        // fill the view.
+        let cur = self.metal_layer.drawableSize();
+        if cur.width as usize != width || cur.height as usize != height {
+            self.metal_layer.setDrawableSize(objc2_core_foundation::CGSize {
+                width: width as f64,
+                height: height as f64,
+            });
         }
 
         // ── Wrap the CVPixelBuffer as an MTLTexture via the texture cache ─────

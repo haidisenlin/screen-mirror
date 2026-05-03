@@ -24,6 +24,7 @@ screencapturekit = "1"
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSObject", "NSData"] }
 objc2-metal = { version = "0.3", features = ["MTLDevice", "MTLTexture", "MTLCommandQueue", "MTLCommandBuffer", "MTLRenderCommandEncoder", "MTLRenderPipeline", "MTLLibrary", "MTLCommandEncoder", "MTLDrawable", "MTLBlitCommandEncoder", "MTLAllocation", "MTLResource", "MTLTypes", "MTLPixelFormat"] }
-objc2-quartz-core = { version = "0.3", features = ["CAMetalLayer", "CALayer"] }
+objc2-quartz-core = { version = "0.3", features = ["CAMetalLayer", "CALayer", "objc2-core-foundation"] }
+objc2-core-foundation = "0.3"
 core-media = "0.7"
 core-video = "0.5"
