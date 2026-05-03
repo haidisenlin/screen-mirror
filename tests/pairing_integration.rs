@@ -32,7 +32,7 @@ fn full_pairing_and_encrypted_exchange() {
         stream.write_all(&msg_b).unwrap();
 
         let keys = pairing::receiver_finish(state, &msg_a).unwrap();
-        let mut channel = SecureChannel::new(stream, &keys.control_key);
+        let mut channel = SecureChannel::new(stream, &keys.control_key, false);
 
         // Receive offer
         let offer_bytes = channel.recv().unwrap().unwrap();
@@ -81,7 +81,7 @@ fn full_pairing_and_encrypted_exchange() {
     stream.read_exact(&mut msg_b).unwrap();
 
     let keys = pairing::sender_finish(state, &msg_b).unwrap();
-    let mut channel = SecureChannel::new(stream, &keys.control_key);
+    let mut channel = SecureChannel::new(stream, &keys.control_key, true);
 
     // Send offer
     let offer = Offer {

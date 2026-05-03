@@ -293,6 +293,11 @@ fn main() -> Result<()> {
             continue;
         }
         let pa_len = u32::from_be_bytes(len_buf) as usize;
+        if pa_len > 256 {
+            tracing::warn!("pairing message too large: {pa_len}, restarting");
+            let _ = advertiser.reregister(&device_name);
+            continue;
+        }
         let mut msg_a = vec![0u8; pa_len];
         if tcp_stream.read_exact(&mut msg_a).is_err() {
             tracing::warn!("failed to read pairing message, restarting");
@@ -321,13 +326,18 @@ fn main() -> Result<()> {
         tcp_stream.set_read_timeout(None)?;
 
         // Negotiate
-        let mut channel = SecureChannel::new(tcp_stream, &keys.control_key);
+        let mut channel = SecureChannel::new(tcp_stream, &keys.control_key, false);
         channel.set_read_timeout(Some(Duration::from_secs(5)))?;
 
         let offer_bytes = match channel.recv() {
             Ok(Some(b)) => b,
-            _ => {
-                tracing::warn!("negotiation failed, restarting");
+            Ok(None) => {
+                tracing::warn!("connection closed (wrong PIN?), restarting");
+                let _ = advertiser.reregister(&device_name);
+                continue;
+            }
+            Err(e) => {
+                tracing::warn!("decryption failed (wrong PIN?): {e}, restarting");
                 let _ = advertiser.reregister(&device_name);
                 continue;
             }

@@ -18,12 +18,16 @@ pub struct SecureChannel {
 }
 
 impl SecureChannel {
-    pub fn new(stream: TcpStream, control_key: &[u8; 32]) -> Self {
-        let nonce_prefix = [0u8, 0, 0, 0]; // TCP control prefix
+    pub fn new(stream: TcpStream, control_key: &[u8; 32], is_initiator: bool) -> Self {
+        let (send_prefix, recv_prefix) = if is_initiator {
+            ([0u8, 0, 0, 0], [0u8, 0, 0, 1])
+        } else {
+            ([0u8, 0, 0, 1], [0u8, 0, 0, 0])
+        };
         Self {
             stream,
-            send_cipher: Cipher::new(control_key, nonce_prefix),
-            recv_cipher: Cipher::new(control_key, nonce_prefix),
+            send_cipher: Cipher::new(control_key, send_prefix),
+            recv_cipher: Cipher::new(control_key, recv_prefix),
             counter_check: TcpCounterCheck::new(),
         }
     }
@@ -86,8 +90,8 @@ mod tests {
         let client_stream = TcpStream::connect(addr).unwrap();
         let (server_stream, _) = listener.accept().unwrap();
 
-        let client = SecureChannel::new(client_stream, key);
-        let server = SecureChannel::new(server_stream, key);
+        let client = SecureChannel::new(client_stream, key, true);
+        let server = SecureChannel::new(server_stream, key, false);
         (client, server)
     }
 

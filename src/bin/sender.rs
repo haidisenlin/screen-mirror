@@ -68,6 +68,9 @@ fn main() -> Result<()> {
     let mut len_buf = [0u8; 4];
     std::io::Read::read_exact(&mut stream, &mut len_buf)?;
     let pb_len = u32::from_be_bytes(len_buf) as usize;
+    if pb_len > 256 {
+        anyhow::bail!("pairing message too large: {pb_len}");
+    }
     let mut msg_b = vec![0u8; pb_len];
     std::io::Read::read_exact(&mut stream, &mut msg_b)?;
 
@@ -75,7 +78,7 @@ fn main() -> Result<()> {
     tracing::info!("pairing successful, session keys derived");
 
     // Step 4: Secure channel + negotiation
-    let mut channel = SecureChannel::new(stream, &keys.control_key);
+    let mut channel = SecureChannel::new(stream, &keys.control_key, true);
 
     #[cfg(target_os = "macos")]
     let (cap_w, cap_h, capture) = {
@@ -124,8 +127,9 @@ fn main() -> Result<()> {
 
     channel.set_read_timeout(Some(Duration::from_secs(5)))?;
     let answer_bytes = channel
-        .recv()?
-        .ok_or_else(|| anyhow::anyhow!("connection closed during negotiation"))?;
+        .recv()
+        .map_err(|e| anyhow::anyhow!("decryption failed (wrong PIN?): {e}"))?
+        .ok_or_else(|| anyhow::anyhow!("connection closed (wrong PIN?)"))?;
     let answer = match NegotiateMessage::from_bytes(&answer_bytes)? {
         NegotiateMessage::Answer(a) => a,
         _ => anyhow::bail!("expected Answer, got something else"),
