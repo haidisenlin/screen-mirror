@@ -1,3 +1,5 @@
+// src/capture/macos.rs
+
 use std::sync::mpsc::{self, Receiver, SyncSender};
 
 use screencapturekit::cm::CMSampleBuffer;
@@ -6,7 +8,7 @@ use screencapturekit::prelude::{
     SCStreamOutputType,
 };
 
-use super::CaptureConfig;
+use super::{CaptureConfig, CapturedFrame, NativeFrame, VideoCapture};
 
 type CGDisplayModeRef = *mut std::ffi::c_void;
 
@@ -19,7 +21,6 @@ unsafe extern "C" {
     fn CGDisplayModeRelease(mode: CGDisplayModeRef);
 }
 
-/// Query the primary display's native pixel resolution without starting capture.
 pub fn native_resolution() -> (u32, u32) {
     let display_id = unsafe { CGMainDisplayID() };
     physical_display_size(display_id).unwrap_or((1920, 1080))
@@ -58,21 +59,16 @@ impl SCStreamOutputTrait for AudioHandler {
     }
 }
 
-/// Owns a live `SCStream` and provides frames one at a time via `next_frame`.
 pub struct MacOsCapture {
-    stream: SCStream,
+    _stream: SCStream,
     video_rx: Receiver<CMSampleBuffer>,
-    audio_rx: Option<Receiver<CMSampleBuffer>>,
+    audio_rx: Receiver<CMSampleBuffer>,
     width: u32,
     height: u32,
 }
 
-impl MacOsCapture {
-    /// Start capturing the primary display.
-    ///
-    /// If `config.width` and `config.height` are 0, captures at the display's
-    /// native pixel resolution (Retina-aware).
-    pub fn new(config: &CaptureConfig) -> anyhow::Result<Self> {
+impl VideoCapture for MacOsCapture {
+    fn new(config: &CaptureConfig) -> anyhow::Result<Self> {
         let content = SCShareableContent::get()?;
         let display = content
             .displays()
@@ -97,50 +93,28 @@ impl MacOsCapture {
             .with_excluding_windows(&[])
             .build();
 
-        let mut sc_config = SCStreamConfiguration::new()
+        let sc_config = SCStreamConfiguration::new()
             .with_width(cap_w)
             .with_height(cap_h)
-            .with_fps(config.fps);
-
-        if config.capture_audio {
-            sc_config = sc_config
-                .with_captures_audio(true)
-                .with_sample_rate(48000)
-                .with_channel_count(2);
-        }
+            .with_fps(config.fps)
+            .with_captures_audio(true)
+            .with_sample_rate(48000)
+            .with_channel_count(2);
 
         let (video_tx, video_rx) = mpsc::sync_channel(2);
-
-        let audio_rx = if config.capture_audio {
-            let (tx, rx) = mpsc::sync_channel(8);
-            let mut stream = SCStream::new(&filter, &sc_config);
-            stream
-                .add_output_handler(VideoHandler { tx: video_tx }, SCStreamOutputType::Screen)
-                .ok_or_else(|| anyhow::anyhow!("failed to add video output handler"))?;
-            stream
-                .add_output_handler(AudioHandler { tx }, SCStreamOutputType::Audio)
-                .ok_or_else(|| anyhow::anyhow!("failed to add audio output handler"))?;
-            stream.start_capture()?;
-            return Ok(Self {
-                stream,
-                video_rx,
-                audio_rx: Some(rx),
-                width: cap_w,
-                height: cap_h,
-            });
-        } else {
-            None
-        };
+        let (audio_tx, audio_rx) = mpsc::sync_channel(8);
 
         let mut stream = SCStream::new(&filter, &sc_config);
         stream
             .add_output_handler(VideoHandler { tx: video_tx }, SCStreamOutputType::Screen)
             .ok_or_else(|| anyhow::anyhow!("failed to add video output handler"))?;
-
+        stream
+            .add_output_handler(AudioHandler { tx: audio_tx }, SCStreamOutputType::Audio)
+            .ok_or_else(|| anyhow::anyhow!("failed to add audio output handler"))?;
         stream.start_capture()?;
 
         Ok(Self {
-            stream,
+            _stream: stream,
             video_rx,
             audio_rx,
             width: cap_w,
@@ -148,36 +122,47 @@ impl MacOsCapture {
         })
     }
 
-    /// The actual capture width in pixels.
-    pub fn width(&self) -> u32 {
+    fn width(&self) -> u32 {
         self.width
     }
 
-    /// The actual capture height in pixels.
-    pub fn height(&self) -> u32 {
+    fn height(&self) -> u32 {
         self.height
     }
 
-    /// Block until the next frame arrives and return it.
-    pub fn next_frame(&self) -> Option<CMSampleBuffer> {
-        self.video_rx.recv().ok()
-    }
-
-    /// Block until the next audio sample arrives and return it.
-    /// Returns `None` immediately if audio capture is disabled.
-    pub fn next_audio(&self) -> Option<CMSampleBuffer> {
-        self.audio_rx.as_ref()?.recv().ok()
-    }
-
-    /// Non-blocking attempt to get the next audio sample.
-    /// Returns `None` if no sample is available or audio capture is disabled.
-    pub fn try_next_audio(&self) -> Option<CMSampleBuffer> {
-        self.audio_rx.as_ref()?.try_recv().ok()
+    fn next_frame(&self) -> Option<CapturedFrame> {
+        loop {
+            let sample = self.video_rx.recv().ok()?;
+            let pixel_buffer = sample.image_buffer()?;
+            let timestamp_ns = sample.display_time().unwrap_or_else(|| {
+                let t = sample.presentation_timestamp();
+                (t.value as u64 * 1_000_000_000) / t.timescale as u64
+            });
+            return Some(CapturedFrame {
+                native: pixel_buffer.as_ptr() as NativeFrame,
+                timestamp_ns,
+            });
+        }
     }
 }
 
-impl Drop for MacOsCapture {
-    fn drop(&mut self) {
-        let _ = self.stream.stop_capture();
+impl MacOsCapture {
+    pub fn try_next_audio(&self) -> Option<Vec<f32>> {
+        let sample = self.audio_rx.try_recv().ok()?;
+        extract_audio_pcm(&sample)
     }
+}
+
+fn extract_audio_pcm(sample: &CMSampleBuffer) -> Option<Vec<f32>> {
+    let buffer_list = sample.audio_buffer_list()?;
+    let mut pcm = Vec::new();
+    for buf in buffer_list.iter() {
+        let data = buf.data();
+        if data.len() >= 4 {
+            let floats: &[f32] =
+                unsafe { std::slice::from_raw_parts(data.as_ptr() as *const f32, data.len() / 4) };
+            pcm.extend_from_slice(floats);
+        }
+    }
+    if pcm.is_empty() { None } else { Some(pcm) }
 }
