@@ -70,19 +70,15 @@ impl VideoEncoder {
         }
         #[cfg(target_os = "windows")]
         {
-            let bgra_texture = unsafe { &*(frame.native as *const ID3D11Texture2D) };
-            let nv12_texture = self.converter.convert(bgra_texture)?;
+            // Take ownership immediately so the texture is freed on any exit path
+            let bgra_box = unsafe { Box::from_raw(frame.native as *mut ID3D11Texture2D) };
+            let nv12_texture = self.converter.convert(&bgra_box)?;
 
-            let result = match &mut self.inner {
+            match &mut self.inner {
                 WindowsEncoder::Nvenc(enc) => enc.encode_nv12(nv12_texture, frame.timestamp_ns),
                 WindowsEncoder::MediaFoundation(enc) => enc.encode_nv12(nv12_texture, frame.timestamp_ns),
                 WindowsEncoder::Software(enc) => enc.encode_nv12(nv12_texture, frame.timestamp_ns),
-            };
-
-            // Free the captured BGRA texture (allocated via Box::into_raw in capture loop)
-            let _ = unsafe { Box::from_raw(frame.native as *mut ID3D11Texture2D) };
-
-            result
+            }
         }
     }
 

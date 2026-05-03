@@ -47,6 +47,8 @@ pub struct BgraToNv12Converter {
     context: ID3D11DeviceContext,
     shader: ID3D11ComputeShader,
     nv12_texture: ID3D11Texture2D,
+    y_texture: ID3D11Texture2D,
+    uv_texture: ID3D11Texture2D,
     y_uav: ID3D11UnorderedAccessView,
     uv_uav: ID3D11UnorderedAccessView,
     width: u32,
@@ -64,7 +66,7 @@ impl BgraToNv12Converter {
             let mut error_blob = None;
             D3DCompile(
                 SHADER_SOURCE.as_ptr() as *const _,
-                SHADER_SOURCE.len() - 1, // exclude null terminator from length
+                SHADER_SOURCE.len() - 1,
                 PCSTR::null(),
                 None,
                 None,
@@ -84,20 +86,51 @@ impl BgraToNv12Converter {
 
             let shader = device.CreateComputeShader(bytecode, None)?;
 
-            let nv12_desc = D3D11_TEXTURE2D_DESC {
+            let sample_desc = DXGI_SAMPLE_DESC { Count: 1, Quality: 0 };
+            let zero_cpu = windows::Win32::Graphics::Direct3D11::D3D11_CPU_ACCESS_FLAG(0);
+            let zero_misc = windows::Win32::Graphics::Direct3D11::D3D11_RESOURCE_MISC_FLAG(0);
+
+            // Intermediate Y texture (R8_UNORM, full resolution) for compute shader output
+            let y_texture = device.CreateTexture2D(&D3D11_TEXTURE2D_DESC {
+                Width: width,
+                Height: height,
+                MipLevels: 1,
+                ArraySize: 1,
+                Format: DXGI_FORMAT_R8_UNORM,
+                SampleDesc: sample_desc,
+                Usage: D3D11_USAGE_DEFAULT,
+                BindFlags: D3D11_BIND_UNORDERED_ACCESS,
+                CPUAccessFlags: zero_cpu,
+                MiscFlags: zero_misc,
+            }, None)?;
+
+            // Intermediate UV texture (R8G8_UNORM, half resolution) for compute shader output
+            let uv_texture = device.CreateTexture2D(&D3D11_TEXTURE2D_DESC {
+                Width: width / 2,
+                Height: height / 2,
+                MipLevels: 1,
+                ArraySize: 1,
+                Format: DXGI_FORMAT_R8G8_UNORM,
+                SampleDesc: sample_desc,
+                Usage: D3D11_USAGE_DEFAULT,
+                BindFlags: D3D11_BIND_UNORDERED_ACCESS,
+                CPUAccessFlags: zero_cpu,
+                MiscFlags: zero_misc,
+            }, None)?;
+
+            // Final NV12 texture for the encoder (planes assembled via CopySubresourceRegion)
+            let nv12_texture = device.CreateTexture2D(&D3D11_TEXTURE2D_DESC {
                 Width: width,
                 Height: height,
                 MipLevels: 1,
                 ArraySize: 1,
                 Format: DXGI_FORMAT_NV12,
-                SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+                SampleDesc: sample_desc,
                 Usage: D3D11_USAGE_DEFAULT,
-                BindFlags: D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE,
-                CPUAccessFlags: windows::Win32::Graphics::Direct3D11::D3D11_CPU_ACCESS_FLAG(0),
-                MiscFlags: windows::Win32::Graphics::Direct3D11::D3D11_RESOURCE_MISC_FLAG(0),
-            };
-
-            let nv12_texture = device.CreateTexture2D(&nv12_desc, None)?;
+                BindFlags: D3D11_BIND_SHADER_RESOURCE,
+                CPUAccessFlags: zero_cpu,
+                MiscFlags: zero_misc,
+            }, None)?;
 
             let y_uav_desc = D3D11_UNORDERED_ACCESS_VIEW_DESC {
                 Format: DXGI_FORMAT_R8_UNORM,
@@ -106,7 +139,7 @@ impl BgraToNv12Converter {
                     Texture2D: D3D11_TEX2D_UAV { MipSlice: 0 },
                 },
             };
-            let y_uav = device.CreateUnorderedAccessView(&nv12_texture, Some(&y_uav_desc))?;
+            let y_uav = device.CreateUnorderedAccessView(&y_texture, Some(&y_uav_desc))?;
 
             let uv_uav_desc = D3D11_UNORDERED_ACCESS_VIEW_DESC {
                 Format: DXGI_FORMAT_R8G8_UNORM,
@@ -115,13 +148,15 @@ impl BgraToNv12Converter {
                     Texture2D: D3D11_TEX2D_UAV { MipSlice: 0 },
                 },
             };
-            let uv_uav = device.CreateUnorderedAccessView(&nv12_texture, Some(&uv_uav_desc))?;
+            let uv_uav = device.CreateUnorderedAccessView(&uv_texture, Some(&uv_uav_desc))?;
 
             Ok(Self {
                 device: device.clone(),
                 context,
                 shader,
                 nv12_texture,
+                y_texture,
+                uv_texture,
                 y_uav,
                 uv_uav,
                 width,
@@ -160,6 +195,10 @@ impl BgraToNv12Converter {
             let empty_uavs: [Option<ID3D11UnorderedAccessView>; 2] = [None, None];
             self.context.CSSetShaderResources(0, Some(&empty_srvs));
             self.context.CSSetUnorderedAccessViews(0, Some(&empty_uavs), None);
+
+            // Assemble NV12: copy Y into plane 0, UV into plane 1
+            self.context.CopySubresourceRegion(&self.nv12_texture, 0, 0, 0, 0, &self.y_texture, 0, None);
+            self.context.CopySubresourceRegion(&self.nv12_texture, 1, 0, 0, 0, &self.uv_texture, 0, None);
 
             Ok(&self.nv12_texture)
         }
