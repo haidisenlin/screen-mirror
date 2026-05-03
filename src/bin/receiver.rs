@@ -1,5 +1,7 @@
-use std::net::SocketAddr;
+use std::io::{Read as IoRead, Write as IoWrite};
+use std::net::UdpSocket;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use anyhow::Result;
 use tracing_subscriber::EnvFilter;
@@ -13,12 +15,17 @@ use screen_mirror::audio::output::AudioOutput;
 use screen_mirror::audio::AudioConfig;
 use screen_mirror::decode::videotoolbox::VTDecoder;
 use screen_mirror::decode::DecoderConfig;
+use screen_mirror::discovery::advertiser::Advertiser;
+use screen_mirror::protocol::negotiate::*;
+use screen_mirror::protocol::session::SecureChannel;
 use screen_mirror::render::metal::MetalRenderer;
+use screen_mirror::security::cipher::Cipher;
+use screen_mirror::security::pairing;
+use screen_mirror::security::replay::ReplayWindow;
 use screen_mirror::sync::SyncState;
 use screen_mirror::transport::fec::{FecDecoder, FecHeader};
 use screen_mirror::transport::jitter::AudioJitterBuffer;
 use screen_mirror::transport::rtp::{H264Depacketizer, RtpPacket};
-use screen_mirror::transport::udp::UdpReceiver;
 
 const PT_VIDEO: u8 = 96;
 const PT_AUDIO: u8 = 111;
@@ -28,20 +35,18 @@ struct App {
     window: Option<Window>,
     renderer: Option<MetalRenderer>,
     audio_output: Option<AudioOutput>,
-    udp: UdpReceiver,
-    // Video pipeline
+    udp: UdpSocket,
+    media_cipher: Cipher,
+    replay_window: ReplayWindow,
     depacketizer: H264Depacketizer,
     decoder: VTDecoder,
     video_fec: FecDecoder,
     last_video_seq: Option<u16>,
-    // Audio pipeline
     opus_decoder: OpusDecoder,
     jitter_buffer: Arc<Mutex<AudioJitterBuffer>>,
     audio_fec: FecDecoder,
     last_audio_seq: Option<u16>,
-    // Sync
     sync_state: SyncState,
-    // Shared state
     recv_buf: Vec<u8>,
     frames_rendered: u64,
     total_packets: u64,
@@ -50,14 +55,21 @@ struct App {
 impl App {
     fn poll_packets(&mut self) {
         loop {
-            match self.udp.recv(&mut self.recv_buf) {
-                Ok(n) => {
-                    let Some(pkt) = RtpPacket::parse(&self.recv_buf[..n]) else {
+            match self.udp.recv_from(&mut self.recv_buf) {
+                Ok((n, _)) => {
+                    let encrypted = &self.recv_buf[..n];
+                    let (counter, plaintext) = match self.media_cipher.open(encrypted) {
+                        Ok(r) => r,
+                        Err(_) => continue,
+                    };
+                    if !self.replay_window.check_and_mark(counter) {
+                        continue;
+                    }
+                    let Some(pkt) = RtpPacket::parse(&plaintext) else {
                         continue;
                     };
                     self.total_packets += 1;
 
-                    // Periodic FEC cleanup
                     if self.total_packets.is_multiple_of(1000) {
                         if let Some(seq) = self.last_video_seq {
                             self.video_fec.remove_old_groups(seq.wrapping_sub(100));
@@ -71,20 +83,11 @@ impl App {
                         PT_VIDEO => self.handle_video_packet(&pkt),
                         PT_AUDIO => self.handle_audio_packet(&pkt),
                         PT_FEC => self.handle_fec_packet(&pkt),
-                        pt => {
-                            tracing::debug!("unknown payload type: {pt}");
-                        }
+                        _ => {}
                     }
                 }
-                Err(e) => {
-                    match e.downcast_ref::<std::io::Error>() {
-                        Some(io_err) if io_err.kind() == std::io::ErrorKind::WouldBlock => break,
-                        _ => {
-                            tracing::error!("recv error: {e}");
-                            break;
-                        }
-                    }
-                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(_) => break,
             }
         }
     }
@@ -93,25 +96,17 @@ impl App {
         let seq = pkt.header.sequence_number;
         self.video_fec.push_media(pkt);
 
-        // Loss detection
         if let Some(prev) = self.last_video_seq {
             let expected = prev.wrapping_add(1);
             if seq != expected {
-                let gap = seq.wrapping_sub(expected);
-                tracing::warn!("video loss: expected {expected}, got {seq} (gap={gap})");
-                // Try FEC recovery for each missing seq
                 let mut s = expected;
                 while s != seq {
                     if let Some(recovered) = self.video_fec.recover(s) {
-                        tracing::debug!("video FEC recovered seq {s}");
-                        // Reconstruct a fake RtpPacket to depacketize
                         let recovered_pkt = RtpPacket {
                             header: pkt.header.clone(),
                             payload: recovered,
                         };
                         self.depacketizer.push(&recovered_pkt);
-                    } else {
-                        tracing::warn!("video seq {s} unrecoverable");
                     }
                     s = s.wrapping_add(1);
                 }
@@ -123,11 +118,10 @@ impl App {
         let ts = pkt.header.timestamp as u64;
         self.depacketizer.push(pkt);
 
-        if marker
-            && let Some(nal) = self.depacketizer.pop_nal()
-            && let Err(e) = self.decoder.decode_nal(&nal, ts)
-        {
-            tracing::warn!("decode error: {e}");
+        if marker {
+            if let Some(nal) = self.depacketizer.pop_nal() {
+                let _ = self.decoder.decode_nal(&nal, ts);
+            }
         }
     }
 
@@ -135,30 +129,20 @@ impl App {
         let seq = pkt.header.sequence_number;
         self.audio_fec.push_media(pkt);
 
-        // Loss detection
         if let Some(prev) = self.last_audio_seq {
             let expected = prev.wrapping_add(1);
             if seq != expected {
-                let gap = seq.wrapping_sub(expected);
-                tracing::warn!("audio loss: expected {expected}, got {seq} (gap={gap})");
-                // Try FEC recovery or PLC for each missing seq
                 let mut s = expected;
                 while s != seq {
                     if let Some(recovered) = self.audio_fec.recover(s) {
-                        tracing::debug!("audio FEC recovered seq {s}");
-                        match self.opus_decoder.decode(&recovered) {
-                            Ok(pcm) => {
-                                if let Ok(mut jb) = self.jitter_buffer.lock() {
-                                    jb.push_frame(pcm);
-                                }
+                        if let Ok(pcm) = self.opus_decoder.decode(&recovered) {
+                            if let Ok(mut jb) = self.jitter_buffer.lock() {
+                                jb.push_frame(pcm);
                             }
-                            Err(e) => {
-                                tracing::warn!("opus decode of recovered packet failed: {e}");
-                                self.do_plc();
-                            }
+                        } else {
+                            self.do_plc();
                         }
                     } else {
-                        tracing::debug!("audio seq {s} unrecoverable, using PLC");
                         self.do_plc();
                     }
                     s = s.wrapping_add(1);
@@ -167,29 +151,20 @@ impl App {
         }
         self.last_audio_seq = Some(seq);
 
-        // Decode current packet
         match self.opus_decoder.decode(&pkt.payload) {
             Ok(pcm) => {
                 if let Ok(mut jb) = self.jitter_buffer.lock() {
                     jb.push_frame(pcm);
                 }
             }
-            Err(e) => {
-                tracing::warn!("opus decode error: {e}");
-                self.do_plc();
-            }
+            Err(_) => self.do_plc(),
         }
     }
 
     fn do_plc(&mut self) {
-        match self.opus_decoder.decode_plc() {
-            Ok(pcm) => {
-                if let Ok(mut jb) = self.jitter_buffer.lock() {
-                    jb.push_frame(pcm);
-                }
-            }
-            Err(e) => {
-                tracing::warn!("PLC failed: {e}");
+        if let Ok(pcm) = self.opus_decoder.decode_plc() {
+            if let Ok(mut jb) = self.jitter_buffer.lock() {
+                jb.push_frame(pcm);
             }
         }
     }
@@ -201,9 +176,7 @@ impl App {
         match fec_header.media_pt {
             PT_VIDEO => self.video_fec.push_fec(pkt),
             PT_AUDIO => self.audio_fec.push_fec(pkt),
-            pt => {
-                tracing::debug!("FEC for unknown media_pt: {pt}");
-            }
+            _ => {}
         }
     }
 }
@@ -232,7 +205,6 @@ impl ApplicationHandler for App {
             }
             self.window = Some(window);
 
-            // Start audio output after event loop is active
             match AudioOutput::new(Arc::clone(&self.jitter_buffer)) {
                 Ok(output) => {
                     tracing::info!("audio output started");
@@ -256,26 +228,18 @@ impl ApplicationHandler for App {
             WindowEvent::RedrawRequested => {
                 self.poll_packets();
 
-                // Update sync state with audio progress
                 if let Some(ref audio_output) = self.audio_output {
-                    self.sync_state
-                        .report_audio_played(audio_output.samples_played());
+                    self.sync_state.report_audio_played(audio_output.samples_played());
                 }
 
-                // Render latest decoded frame
-                if let Some(frame) = self.decoder.next_frame()
-                    && let Some(renderer) = &mut self.renderer
-                {
-                    let _ = unsafe { renderer.render_pixel_buffer(frame.pixel_buffer) };
-                    self.frames_rendered += 1;
-                    self.sync_state
-                        .report_video_rendered(frame.timestamp as u32);
-                    if self.frames_rendered.is_multiple_of(60) {
-                        tracing::info!(
-                            "rendered {} frames, rate_adj={:.3}",
-                            self.frames_rendered,
-                            self.sync_state.rate_adjustment()
-                        );
+                if let Some(frame) = self.decoder.next_frame() {
+                    if let Some(renderer) = &mut self.renderer {
+                        let _ = unsafe { renderer.render_pixel_buffer(frame.pixel_buffer) };
+                        self.frames_rendered += 1;
+                        self.sync_state.report_video_rendered(frame.timestamp as u32);
+                        if self.frames_rendered.is_multiple_of(60) {
+                            tracing::info!("rendered {} frames", self.frames_rendered);
+                        }
                     }
                 }
 
@@ -299,19 +263,81 @@ fn main() -> Result<()> {
         .with_env_filter(EnvFilter::from_default_env())
         .init();
 
-    let bind: SocketAddr = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "0.0.0.0:5004".to_string())
-        .parse()?;
+    let device_name = hostname::get()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
 
-    tracing::info!("receiver starting, listening on {bind}");
+    // Generate PIN and advertise
+    let pin = pairing::generate_pin();
+    tracing::info!("========================================");
+    tracing::info!("  PIN: {pin}");
+    tracing::info!("========================================");
 
-    let udp = UdpReceiver::new(bind)?;
-    udp.set_nonblocking(true)?;
+    let (advertiser, listener) = Advertiser::new(&device_name)?;
+    tracing::info!("waiting for connection on port {}...", advertiser.port());
+
+    // Accept TCP and pair
+    listener.set_nonblocking(false)?;
+    let (mut tcp_stream, peer_addr) = listener.accept()?;
+    tracing::info!("connection from {peer_addr}");
+    let _ = advertiser.unregister();
+
+    tcp_stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+
+    let mut len_buf = [0u8; 4];
+    tcp_stream.read_exact(&mut len_buf)?;
+    let pa_len = u32::from_be_bytes(len_buf) as usize;
+    let mut msg_a = vec![0u8; pa_len];
+    tcp_stream.read_exact(&mut msg_a)?;
+
+    let (msg_b, state) = pairing::receiver_start(&pin);
+    tcp_stream.write_all(&(msg_b.len() as u32).to_be_bytes())?;
+    tcp_stream.write_all(&msg_b)?;
+
+    let keys = pairing::receiver_finish(state, &msg_a)?;
+    tracing::info!("pairing successful");
+    tcp_stream.set_read_timeout(None)?;
+
+    // Secure channel + negotiation
+    let mut channel = SecureChannel::new(tcp_stream, &keys.control_key);
+    channel.set_read_timeout(Some(Duration::from_secs(5)))?;
+
+    let offer_bytes = channel.recv()?.ok_or_else(|| anyhow::anyhow!("closed during negotiation"))?;
+    let offer = match NegotiateMessage::from_bytes(&offer_bytes)? {
+        NegotiateMessage::Offer(o) => o,
+        _ => anyhow::bail!("expected Offer"),
+    };
+
+    let udp_socket = UdpSocket::bind("0.0.0.0:0")?;
+    let receiver_udp_port = udp_socket.local_addr()?.port();
+    udp_socket.set_nonblocking(true)?;
+
+    let answer = Answer {
+        video: AnswerVideo {
+            codec: "h264".to_string(),
+            max_width: 1920,
+            max_height: 1080,
+            max_fps: 60,
+        },
+        audio: AnswerAudio {
+            codec: "opus".to_string(),
+            sample_rate: 48000,
+            channels: 2,
+        },
+        transport: AnswerTransport { udp_port: receiver_udp_port },
+    };
+    channel.send(&NegotiateMessage::Answer(answer.clone()).to_bytes())?;
+    let params = NegotiatedParams::resolve(&offer, &answer);
+    tracing::info!("negotiated: {}x{} @ {}fps", params.video_width, params.video_height, params.video_fps);
+    channel.set_read_timeout(None)?;
+
+    // Set up media decryption
+    let media_cipher = Cipher::new(&keys.media_key, [0, 0, 0, 1]);
 
     let decoder = VTDecoder::new(DecoderConfig {
-        width: 1920,
-        height: 1080,
+        width: params.video_width,
+        height: params.video_height,
     })?;
 
     let audio_config = AudioConfig {
@@ -327,7 +353,9 @@ fn main() -> Result<()> {
         window: None,
         renderer: None,
         audio_output: None,
-        udp,
+        udp: udp_socket,
+        media_cipher,
+        replay_window: ReplayWindow::new(),
         depacketizer: H264Depacketizer::new(),
         decoder,
         video_fec: FecDecoder::new(),
