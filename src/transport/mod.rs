@@ -6,3 +6,4 @@ pub mod jitter;
 pub use rtp::{H264Depacketizer, H264Packetizer, RtpHeader, RtpPacket};
 pub use udp::{UdpReceiver, UdpSender};
 pub use fec::{FecEncoder, FecDecoder, FecHeader};
+pub use jitter::AudioJitterBuffer;
