@@ -60,12 +60,21 @@ fn main() -> Result<()> {
     let fps: u32 = if pixels > 1920 * 1200 { 30 } else { 60 };
     tracing::info!("capturing at {cap_w}x{cap_h}, {fps}fps, bitrate={}Mbps", bitrate / 1_000_000);
 
+    #[cfg(target_os = "macos")]
     let mut encoder = VideoEncoder::new(&EncoderConfig {
         width: cap_w,
         height: cap_h,
         fps,
         bitrate,
     })?;
+
+    #[cfg(target_os = "windows")]
+    let mut encoder = VideoEncoder::new_with_device(&EncoderConfig {
+        width: cap_w,
+        height: cap_h,
+        fps,
+        bitrate,
+    }, capture.device())?;
 
     let mut packetizer = H264Packetizer::new(VIDEO_PT, VIDEO_SSRC, 1400);
     let udp = UdpSender::new(target)?;

@@ -12,6 +12,8 @@ pub mod software;
 pub mod convert;
 
 use crate::capture::CapturedFrame;
+#[cfg(target_os = "windows")]
+use windows::Win32::Graphics::Direct3D11::ID3D11Device;
 
 pub struct EncoderConfig {
     pub width: u32,
@@ -32,6 +34,8 @@ pub struct VideoEncoder {
     inner: videotoolbox::VTEncoder,
     #[cfg(target_os = "windows")]
     inner: WindowsEncoder,
+    #[cfg(target_os = "windows")]
+    converter: convert::BgraToNv12Converter,
 }
 
 #[cfg(target_os = "windows")]
@@ -50,8 +54,13 @@ impl VideoEncoder {
         }
         #[cfg(target_os = "windows")]
         {
-            Self::probe_windows_encoder(config)
+            anyhow::bail!("on Windows, use VideoEncoder::new_with_device() to provide the D3D11 device")
         }
+    }
+
+    #[cfg(target_os = "windows")]
+    pub fn new_with_device(config: &EncoderConfig, device: &ID3D11Device) -> anyhow::Result<Self> {
+        Self::probe_windows_encoder(config, device)
     }
 
     pub fn encode(&mut self, frame: &CapturedFrame) -> anyhow::Result<()> {
@@ -85,17 +94,21 @@ impl VideoEncoder {
     }
 
     #[cfg(target_os = "windows")]
-    fn probe_windows_encoder(config: &EncoderConfig) -> anyhow::Result<Self> {
-        if let Ok(enc) = nvenc::NvencEncoder::new(config) {
+    fn probe_windows_encoder(config: &EncoderConfig, device: &ID3D11Device) -> anyhow::Result<Self> {
+        let converter = convert::BgraToNv12Converter::new(device, config.width, config.height)?;
+
+        let inner = if let Ok(enc) = nvenc::NvencEncoder::new(config) {
             tracing::info!("encoder: using NVENC");
-            return Ok(Self { inner: WindowsEncoder::Nvenc(enc) });
-        }
-        if let Ok(enc) = media_foundation::MfEncoder::new(config) {
+            WindowsEncoder::Nvenc(enc)
+        } else if let Ok(enc) = media_foundation::MfEncoder::new(config) {
             tracing::info!("encoder: using Media Foundation HW");
-            return Ok(Self { inner: WindowsEncoder::MediaFoundation(enc) });
-        }
-        let enc = software::X264Encoder::new(config)?;
-        tracing::info!("encoder: using x264 software");
-        Ok(Self { inner: WindowsEncoder::Software(enc) })
+            WindowsEncoder::MediaFoundation(enc)
+        } else {
+            let enc = software::X264Encoder::new(config)?;
+            tracing::info!("encoder: using software (openh264)");
+            WindowsEncoder::Software(enc)
+        };
+
+        Ok(Self { inner, converter })
     }
 }
