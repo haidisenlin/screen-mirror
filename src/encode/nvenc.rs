@@ -1,12 +1,12 @@
-use std::ffi::c_void;
 use std::sync::mpsc::{self, Receiver, SyncSender};
 
 use windows::Win32::Foundation::HMODULE;
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryA};
 use windows::core::PCSTR;
 
+use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
+
 use super::{EncodedPacket, EncoderConfig};
-use crate::capture::CapturedFrame;
 
 pub struct NvencEncoder {
     _module: HMODULE,
@@ -32,7 +32,7 @@ impl NvencEncoder {
         }
     }
 
-    pub fn encode(&mut self, _frame: &CapturedFrame) -> anyhow::Result<()> {
+    pub fn encode_nv12(&mut self, _nv12_texture: &ID3D11Texture2D, _timestamp_ns: u64) -> anyhow::Result<()> {
         anyhow::bail!("NVENC not initialized")
     }
 

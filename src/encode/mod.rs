@@ -13,7 +13,7 @@ pub mod convert;
 
 use crate::capture::CapturedFrame;
 #[cfg(target_os = "windows")]
-use windows::Win32::Graphics::Direct3D11::ID3D11Device;
+use windows::Win32::Graphics::Direct3D11::{ID3D11Device, ID3D11Texture2D};
 
 pub struct EncoderConfig {
     pub width: u32,
@@ -70,11 +70,23 @@ impl VideoEncoder {
         }
         #[cfg(target_os = "windows")]
         {
-            match &mut self.inner {
-                WindowsEncoder::Nvenc(enc) => enc.encode(frame),
-                WindowsEncoder::MediaFoundation(enc) => enc.encode(frame),
-                WindowsEncoder::Software(enc) => enc.encode(frame),
-            }
+            // Extract the BGRA texture from the captured frame
+            let bgra_texture = unsafe { &*(frame.native as *const ID3D11Texture2D) };
+
+            // Convert BGRA to NV12 via compute shader
+            let nv12_texture = self.converter.convert(bgra_texture)?;
+
+            // Encode the NV12 texture
+            let result = match &mut self.inner {
+                WindowsEncoder::Nvenc(enc) => enc.encode_nv12(nv12_texture, frame.timestamp_ns),
+                WindowsEncoder::MediaFoundation(enc) => enc.encode_nv12(nv12_texture, frame.timestamp_ns),
+                WindowsEncoder::Software(enc) => enc.encode_nv12(nv12_texture, frame.timestamp_ns),
+            };
+
+            // Free the captured BGRA texture (allocated via Box::into_raw in capture loop)
+            let _ = unsafe { Box::from_raw(frame.native as *mut ID3D11Texture2D) };
+
+            result
         }
     }
 

@@ -1,17 +1,18 @@
 use std::sync::mpsc::{self, Receiver, SyncSender};
 
+use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
 use windows::Win32::Media::MediaFoundation::{
-    IMFMediaBuffer, IMFMediaType, IMFSample, IMFTransform, MFCreateMediaType, MFCreateMemoryBuffer,
-    MFCreateSample, MFStartup, MFTEnumEx, MFMediaType_Video, MFVideoFormat_H264,
-    MFVideoFormat_NV12, MFT_CATEGORY_VIDEO_ENCODER, MFT_ENUM_FLAG_HARDWARE,
-    MFT_ENUM_FLAG_SORTANDFILTER, MFT_REGISTER_TYPE_INFO, MF_MT_AVG_BITRATE, MF_MT_FRAME_RATE,
-    MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE, MF_MT_SUBTYPE,
+    IMFMediaBuffer, IMFMediaType, IMFSample, IMFTransform, MFCreateDXGISurfaceBuffer,
+    MFCreateMediaType, MFCreateMemoryBuffer, MFCreateSample, MFStartup, MFTEnumEx,
+    MFMediaType_Video, MFVideoFormat_H264, MFVideoFormat_NV12, MFT_CATEGORY_VIDEO_ENCODER,
+    MFT_ENUM_FLAG_HARDWARE, MFT_ENUM_FLAG_SORTANDFILTER, MFT_REGISTER_TYPE_INFO,
+    MF_MT_AVG_BITRATE, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE,
+    MF_MT_MAJOR_TYPE, MF_MT_SUBTYPE,
 };
-use windows::Win32::System::Com::{CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED};
+use windows::Win32::System::Com::{CoInitializeEx, CoTaskMemFree, COINIT_MULTITHREADED};
 use windows::core::Interface;
 
 use super::{EncodedPacket, EncoderConfig};
-use crate::capture::CapturedFrame;
 
 pub struct MfEncoder {
     transform: IMFTransform,
@@ -62,6 +63,9 @@ impl MfEncoder {
                 .ok_or_else(|| anyhow::anyhow!("null IMFActivate"))?;
 
             let transform: IMFTransform = activate.ActivateObject()?;
+
+            // Free the COM-allocated array from MFTEnumEx
+            CoTaskMemFree(Some(activates as *const _ as *const std::ffi::c_void));
 
             // Configure output type (H.264)
             let output_media_type: IMFMediaType = MFCreateMediaType()?;
@@ -115,19 +119,21 @@ impl MfEncoder {
         }
     }
 
-    pub fn encode(&mut self, frame: &CapturedFrame) -> anyhow::Result<()> {
+    pub fn encode_nv12(&mut self, nv12_texture: &ID3D11Texture2D, timestamp_ns: u64) -> anyhow::Result<()> {
         unsafe {
-            let nv12_size = (self.width * self.height * 3 / 2) as usize;
-
-            let buffer: IMFMediaBuffer = MFCreateMemoryBuffer(nv12_size as u32)?;
-            buffer.SetCurrentLength(nv12_size as u32)?;
+            let buffer: IMFMediaBuffer = MFCreateDXGISurfaceBuffer(
+                &ID3D11Texture2D::IID,
+                nv12_texture,
+                0,     // subresource index
+                false, // bottom-up (false for top-down)
+            )?;
 
             let sample: IMFSample = MFCreateSample()?;
             sample.AddBuffer(&buffer)?;
-            sample.SetSampleTime(frame.timestamp_ns as i64 / 100)?;
+            sample.SetSampleTime(timestamp_ns as i64 / 100)?; // 100ns units
 
             self.transform.ProcessInput(0, &sample, 0)?;
-            self.drain_output(frame.timestamp_ns)?;
+            self.drain_output(timestamp_ns)?;
 
             Ok(())
         }
