@@ -1,10 +1,10 @@
-use tracing::info;
+use anyhow::Result;
 use tracing_subscriber::EnvFilter;
 
-fn main() {
+fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .init();
-
-    info!("sender starting");
+    tracing::info!("sender starting");
+    Ok(())
 }

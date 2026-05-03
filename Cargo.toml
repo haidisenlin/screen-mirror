@@ -17,10 +17,13 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 crossbeam-channel = "0.5"
 anyhow = "1"
+tokio = { version = "1", features = ["rt", "net", "macros"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 screencapturekit = "1"
 objc2 = "0.6"
-objc2-foundation = "0.3"
-objc2-metal = "0.3"
-objc2-quartz-core = "0.3"
+objc2-foundation = { version = "0.3", features = ["NSObject", "NSData"] }
+objc2-metal = { version = "0.3", features = ["MTLDevice", "MTLTexture", "MTLCommandQueue", "MTLCommandBuffer", "MTLRenderCommandEncoder", "MTLRenderPipeline", "MTLLibrary"] }
+objc2-quartz-core = { version = "0.3", features = ["CAMetalLayer"] }
+core-media = "0.7"
+core-video = "0.5"
