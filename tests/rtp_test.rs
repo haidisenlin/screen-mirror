@@ -1,4 +1,4 @@
-use screen_mirror::transport::rtp::{RtpHeader, RtpPacket, H264Packetizer, H264Depacketizer};
+use screen_mirror::transport::rtp::{H264Depacketizer, H264Packetizer, RtpHeader};
 
 #[test]
 fn test_rtp_header_roundtrip() {
