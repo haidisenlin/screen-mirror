@@ -112,7 +112,8 @@ unsafe extern "C" {
     static kVTCompressionPropertyKey_AverageBitRate: CFStringRef;
     static kVTCompressionPropertyKey_MaxKeyFrameInterval: CFStringRef;
     static kVTCompressionPropertyKey_AllowFrameReordering: CFStringRef;
-    static kVTProfileLevel_H264_Main_AutoLevel: CFStringRef;
+    static kVTCompressionPropertyKey_ExpectedFrameRate: CFStringRef;
+    static kVTProfileLevel_H264_High_AutoLevel: CFStringRef;
 
     static kCMSampleAttachmentKey_NotSync: CFStringRef;
 
@@ -442,17 +443,28 @@ impl VTEncoder {
             anyhow::bail!("set RealTime failed: {}", status);
         }
 
-        // H.264 Main Profile
+        // H.264 High Profile (better compression at high resolutions)
         let status = unsafe {
             VTSessionSetProperty(
                 self.session,
                 kVTCompressionPropertyKey_ProfileLevel,
-                kVTProfileLevel_H264_Main_AutoLevel as CFTypeRef,
+                kVTProfileLevel_H264_High_AutoLevel as CFTypeRef,
             )
         };
         if status != 0 {
             anyhow::bail!("set ProfileLevel failed: {}", status);
         }
+
+        // Expected frame rate hint (non-fatal if unsupported)
+        let fps_num = unsafe { cf_number_from_i32(config.fps as i32) };
+        let _ = unsafe {
+            VTSessionSetProperty(
+                self.session,
+                kVTCompressionPropertyKey_ExpectedFrameRate,
+                fps_num as CFTypeRef,
+            )
+        };
+        unsafe { CFRelease(fps_num as CFTypeRef) };
 
         // CBR average bitrate (bits per second)
         let bitrate = config.bitrate as i32;

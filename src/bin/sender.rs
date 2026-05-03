@@ -5,7 +5,7 @@ use tracing_subscriber::EnvFilter;
 use screen_mirror::audio::AudioConfig;
 use screen_mirror::audio::opus_encoder::OpusEncoder;
 use screen_mirror::capture::CaptureConfig;
-use screen_mirror::capture::macos::MacOsCapture;
+use screen_mirror::capture::macos::{MacOsCapture, native_resolution};
 use screen_mirror::encode::EncoderConfig;
 use screen_mirror::encode::videotoolbox::VTEncoder;
 use screen_mirror::transport::fec::FecEncoder;
@@ -45,25 +45,25 @@ fn main() -> Result<()> {
 
     tracing::info!("sender starting, target={target}");
 
-    // width=0, height=0 → auto-detect native display resolution
+    let (cap_w, cap_h) = native_resolution();
+    let pixels = cap_w as u64 * cap_h as u64;
+    // Scale bitrate proportionally: 15 Mbps baseline for 1920×1080, cap at 40 Mbps
+    let bitrate = ((pixels * 15_000_000 / (1920 * 1080)) as u32).min(40_000_000);
+    // High-res (>1080p) → 30fps for encoder throughput; otherwise 60fps
+    let fps: u32 = if pixels > 1920 * 1200 { 30 } else { 60 };
+    tracing::info!("capturing at {cap_w}x{cap_h}, {fps}fps, bitrate={}Mbps", bitrate / 1_000_000);
+
     let capture = MacOsCapture::new(&CaptureConfig {
-        fps: 60,
-        width: 0,
-        height: 0,
+        fps,
+        width: cap_w,
+        height: cap_h,
         capture_audio: true,
     })?;
-
-    let cap_w = capture.width();
-    let cap_h = capture.height();
-    let pixels = cap_w as u64 * cap_h as u64;
-    // Scale bitrate proportionally: 10 Mbps baseline for 1920×1080
-    let bitrate = (pixels * 10_000_000 / (1920 * 1080)) as u32;
-    tracing::info!("capturing at {cap_w}x{cap_h}, bitrate={bitrate}");
 
     let mut encoder = VTEncoder::new(&EncoderConfig {
         width: cap_w,
         height: cap_h,
-        fps: 60,
+        fps,
         bitrate,
     })?;
 
@@ -109,7 +109,7 @@ fn main() -> Result<()> {
         encoder.encode_pixel_buffer(pixel_buffer.as_ptr(), ts_ns)?;
         frame_count += 1;
 
-        if frame_count.is_multiple_of(60) {
+        if frame_count.is_multiple_of(fps as u64) {
             tracing::info!("encoded {frame_count} frames");
         }
 

@@ -8,10 +8,34 @@ use screencapturekit::prelude::{
 
 use super::CaptureConfig;
 
+type CGDisplayModeRef = *mut std::ffi::c_void;
+
+#[link(name = "CoreGraphics", kind = "framework")]
 unsafe extern "C" {
-    fn CGDisplayPixelsWide(display: u32) -> usize;
-    fn CGDisplayPixelsHigh(display: u32) -> usize;
     fn CGMainDisplayID() -> u32;
+    fn CGDisplayCopyDisplayMode(display: u32) -> CGDisplayModeRef;
+    fn CGDisplayModeGetPixelWidth(mode: CGDisplayModeRef) -> usize;
+    fn CGDisplayModeGetPixelHeight(mode: CGDisplayModeRef) -> usize;
+    fn CGDisplayModeRelease(mode: CGDisplayModeRef);
+}
+
+/// Query the primary display's native pixel resolution without starting capture.
+pub fn native_resolution() -> (u32, u32) {
+    let display_id = unsafe { CGMainDisplayID() };
+    physical_display_size(display_id).unwrap_or((1920, 1080))
+}
+
+fn physical_display_size(display_id: u32) -> Option<(u32, u32)> {
+    unsafe {
+        let mode = CGDisplayCopyDisplayMode(display_id);
+        if mode.is_null() {
+            return None;
+        }
+        let w = CGDisplayModeGetPixelWidth(mode) as u32;
+        let h = CGDisplayModeGetPixelHeight(mode) as u32;
+        CGDisplayModeRelease(mode);
+        if w > 0 && h > 0 { Some((w, h)) } else { None }
+    }
 }
 
 struct VideoHandler {
@@ -58,16 +82,12 @@ impl MacOsCapture {
 
         let (cap_w, cap_h) = if config.width == 0 || config.height == 0 {
             let display_id = display.display_id();
-            let pw = unsafe { CGDisplayPixelsWide(display_id) } as u32;
-            let ph = unsafe { CGDisplayPixelsHigh(display_id) } as u32;
-            if pw == 0 || ph == 0 {
-                let fallback_id = unsafe { CGMainDisplayID() };
-                let pw = unsafe { CGDisplayPixelsWide(fallback_id) } as u32;
-                let ph = unsafe { CGDisplayPixelsHigh(fallback_id) } as u32;
-                (pw.max(1920), ph.max(1080))
-            } else {
-                (pw, ph)
-            }
+            physical_display_size(display_id)
+                .or_else(|| {
+                    let fallback_id = unsafe { CGMainDisplayID() };
+                    physical_display_size(fallback_id)
+                })
+                .unwrap_or((1920, 1080))
         } else {
             (config.width, config.height)
         };
