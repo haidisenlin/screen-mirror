@@ -22,6 +22,10 @@ pub struct CapturedFrame {
     pub timestamp_ns: u64,
 }
 
+// Safety: native pointer represents sole ownership of a platform resource
+// (CVPixelBufferRef on macOS, Box<ID3D11Texture2D> on Windows)
+unsafe impl Send for CapturedFrame {}
+
 pub trait VideoCapture {
     fn new(config: &CaptureConfig) -> anyhow::Result<Self>
     where

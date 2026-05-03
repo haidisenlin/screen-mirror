@@ -203,8 +203,9 @@ fn capture_loop(state: DxgiState, tx: SyncSender<CapturedFrame>, fps: u32) {
                 timestamp_ns,
             };
 
-            if tx.try_send(frame).is_err() {
-                // Receiver full or disconnected — drop frame
+            if let Err(e) = tx.try_send(frame) {
+                let leaked = e.into_inner();
+                let _ = Box::from_raw(leaked.native as *mut ID3D11Texture2D);
             }
         }
     }

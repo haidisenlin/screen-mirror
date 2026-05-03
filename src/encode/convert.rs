@@ -26,10 +26,10 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     if (id.x >= width || id.y >= height)
         return;
 
-    float4 bgra = inputTex[id.xy];
-    float r = bgra.z;
-    float g = bgra.y;
-    float b = bgra.x;
+    float4 pixel = inputTex[id.xy];
+    float r = pixel.x;
+    float g = pixel.y;
+    float b = pixel.z;
 
     float y = 0.257 * r + 0.504 * g + 0.098 * b + 0.0625;
     outputY[id.xy] = y;

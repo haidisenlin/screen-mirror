@@ -155,6 +155,7 @@ impl MfEncoder {
             let hr = self.transform.ProcessOutput(0, &mut [output_buffer], &mut status);
 
             if hr.is_err() {
+                let _ = std::mem::ManuallyDrop::into_inner(output_buffer.pSample);
                 break;
             }
 
