@@ -1,6 +1,7 @@
 pub mod audio;
 pub mod capture;
 pub mod decode;
+pub mod discovery;
 pub mod encode;
 pub mod render;
 pub mod security;
