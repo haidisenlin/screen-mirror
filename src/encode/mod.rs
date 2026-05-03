@@ -63,20 +63,16 @@ impl VideoEncoder {
         Self::probe_windows_encoder(config, device)
     }
 
-    pub fn encode(&mut self, frame: &CapturedFrame) -> anyhow::Result<()> {
+    pub fn encode(&mut self, frame: CapturedFrame) -> anyhow::Result<()> {
         #[cfg(target_os = "macos")]
         {
-            self.inner.encode_frame(frame)
+            self.inner.encode_frame(&frame)
         }
         #[cfg(target_os = "windows")]
         {
-            // Extract the BGRA texture from the captured frame
             let bgra_texture = unsafe { &*(frame.native as *const ID3D11Texture2D) };
-
-            // Convert BGRA to NV12 via compute shader
             let nv12_texture = self.converter.convert(bgra_texture)?;
 
-            // Encode the NV12 texture
             let result = match &mut self.inner {
                 WindowsEncoder::Nvenc(enc) => enc.encode_nv12(nv12_texture, frame.timestamp_ns),
                 WindowsEncoder::MediaFoundation(enc) => enc.encode_nv12(nv12_texture, frame.timestamp_ns),

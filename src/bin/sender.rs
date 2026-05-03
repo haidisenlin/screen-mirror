@@ -104,7 +104,7 @@ fn main() -> Result<()> {
             continue;
         };
 
-        encoder.encode(&frame)?;
+        encoder.encode(frame)?;
         frame_count += 1;
 
         if frame_count % fps as u64 == 0 {

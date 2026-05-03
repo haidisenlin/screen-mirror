@@ -64,7 +64,10 @@ impl MfEncoder {
 
             let transform: IMFTransform = activate.ActivateObject()?;
 
-            // Free the COM-allocated array from MFTEnumEx
+            // Take ownership of each IMFActivate (triggers Release via Drop), then free the array
+            for i in 0..count as usize {
+                let _ = std::ptr::read(activates.add(i));
+            }
             CoTaskMemFree(Some(activates as *const _ as *const std::ffi::c_void));
 
             // Configure output type (H.264)
