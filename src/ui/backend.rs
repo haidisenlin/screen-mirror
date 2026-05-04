@@ -233,7 +233,8 @@ fn handle_verify_pin(
     event_tx: &Sender<BackendEvent>,
 ) {
     for device in devices {
-        let url = format!("http://{}:{}/verify-pin", device.addr.ip(), device.addr.port());
+        let port = device.http_port.unwrap_or(device.addr.port());
+        let url = format!("http://{}:{}/verify-pin", device.addr.ip(), port);
         let result = ureq::post(&url)
             .timeout(Duration::from_millis(500))
             .send_json(ureq::json!({ "pin": pin }));

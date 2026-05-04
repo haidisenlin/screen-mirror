@@ -1,6 +1,7 @@
 use std::io::{Read as IoRead, Write as IoWrite};
 use std::net::UdpSocket;
 use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -258,6 +259,48 @@ impl ApplicationHandler for App {
     }
 }
 
+fn spawn_verify_pin_server(
+    pin: Arc<Mutex<String>>,
+    device_name: String,
+) -> (u16, thread::JoinHandle<()>) {
+    let server = tiny_http::Server::http("0.0.0.0:0").expect("failed to bind HTTP server");
+    let port = server.server_addr().to_ip().unwrap().port();
+    let handle = thread::spawn(move || {
+        for mut request in server.incoming_requests() {
+            if request.method() != &tiny_http::Method::Post || request.url() != "/verify-pin" {
+                let resp = tiny_http::Response::from_string("{}").with_status_code(404);
+                let _ = request.respond(resp);
+                continue;
+            }
+            let mut body = String::new();
+            if request.as_reader().read_to_string(&mut body).is_err() {
+                let resp = tiny_http::Response::from_string("{}").with_status_code(400);
+                let _ = request.respond(resp);
+                continue;
+            }
+            let received_pin = serde_json::from_str::<serde_json::Value>(&body)
+                .ok()
+                .and_then(|v| v["pin"].as_str().map(|s| s.to_string()));
+            let current_pin = pin.lock().unwrap().clone();
+            if received_pin.as_deref() == Some(current_pin.as_str()) {
+                let json = serde_json::json!({ "device_name": device_name });
+                let resp = tiny_http::Response::from_string(json.to_string())
+                    .with_header(
+                        "Content-Type: application/json"
+                            .parse::<tiny_http::Header>()
+                            .unwrap(),
+                    )
+                    .with_status_code(200);
+                let _ = request.respond(resp);
+            } else {
+                let resp = tiny_http::Response::from_string("{}").with_status_code(403);
+                let _ = request.respond(resp);
+            }
+        }
+    });
+    (port, handle)
+}
+
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
@@ -268,11 +311,16 @@ fn main() -> Result<()> {
         .to_string_lossy()
         .to_string();
 
-    let (advertiser, listener) = Advertiser::new(&device_name)?;
+    // Spawn HTTP verify-pin server
+    let pin = pairing::generate_pin();
+    let shared_pin = Arc::new(Mutex::new(pin.clone()));
+    let (http_port, _http_handle) = spawn_verify_pin_server(shared_pin.clone(), device_name.clone());
+    tracing::info!("HTTP verify-pin server on port {http_port}");
+
+    let (advertiser, listener) = Advertiser::new(&device_name, http_port)?;
 
     // Loop until we successfully pair and negotiate
     let (media_cipher, params, udp_socket) = loop {
-        let pin = pairing::generate_pin();
         tracing::info!("========================================");
         tracing::info!("  PIN: {pin}");
         tracing::info!("========================================");

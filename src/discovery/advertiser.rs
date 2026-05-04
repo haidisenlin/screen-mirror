@@ -10,10 +10,11 @@ pub struct Advertiser {
     daemon: ServiceDaemon,
     fullname: String,
     port: u16,
+    http_port: u16,
 }
 
 impl Advertiser {
-    pub fn new(device_name: &str) -> Result<(Self, TcpListener)> {
+    pub fn new(device_name: &str, http_port: u16) -> Result<(Self, TcpListener)> {
         let listener = TcpListener::bind("0.0.0.0:0")?;
         let port = listener.local_addr()?.port();
 
@@ -31,6 +32,7 @@ impl Advertiser {
 
         let mut properties = HashMap::new();
         properties.insert("device_name".to_string(), device_name.to_string());
+        properties.insert("http_port".to_string(), http_port.to_string());
 
         let service_info = ServiceInfo::new(
             SERVICE_TYPE,
@@ -52,6 +54,7 @@ impl Advertiser {
                 daemon,
                 fullname,
                 port,
+                http_port,
             },
             listener,
         ))
@@ -80,6 +83,7 @@ impl Advertiser {
 
         let mut properties = HashMap::new();
         properties.insert("device_name".to_string(), device_name.to_string());
+        properties.insert("http_port".to_string(), self.http_port.to_string());
 
         let service_info = ServiceInfo::new(
             SERVICE_TYPE,

@@ -258,10 +258,12 @@ impl AppCore {
                                 DiscoveredReceiver {
                                     name: "客厅电视".to_string(),
                                     addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)), 9000),
+                                    http_port: Some(19400),
                                 },
                                 DiscoveredReceiver {
                                     name: "会议室投影".to_string(),
                                     addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 101)), 9000),
+                                    http_port: Some(19401),
                                 },
                             ];
                         }
@@ -505,6 +507,7 @@ mod tests {
         crate::discovery::browser::DiscoveredReceiver {
             name: name.to_string(),
             addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9000),
+            http_port: None,
         }
     }
 
