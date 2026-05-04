@@ -2,7 +2,7 @@ use std::io::Write;
 use std::net::{TcpStream, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -34,11 +34,20 @@ const AUDIO_SSRC: u32 = 0x87654321;
 
 /// Spawns a background thread that continuously browses for mDNS receivers
 /// and sends `DevicesUpdated` events every ~5 seconds (3s browse + 2s sleep).
-pub fn spawn_mdns_browser(event_tx: Sender<BackendEvent>) -> JoinHandle<()> {
+pub fn spawn_mdns_browser(
+    event_tx: Sender<BackendEvent>,
+    shared_devices: Arc<Mutex<Vec<browser::DiscoveredReceiver>>>,
+) -> JoinHandle<()> {
     thread::spawn(move || loop {
         match browser::browse(Duration::from_secs(3)) {
             Ok(devices) => {
-                if event_tx.send(BackendEvent::DevicesUpdated(devices)).is_err() {
+                let mut seen = std::collections::HashSet::new();
+                let deduped: Vec<_> = devices
+                    .into_iter()
+                    .filter(|d| seen.insert(d.name.clone()))
+                    .collect();
+                *shared_devices.lock().unwrap() = deduped.clone();
+                if event_tx.send(BackendEvent::DevicesUpdated(deduped)).is_err() {
                     break;
                 }
             }
@@ -60,6 +69,7 @@ pub fn spawn_mdns_browser(event_tx: Sender<BackendEvent>) -> JoinHandle<()> {
 pub fn spawn_command_handler(
     cmd_rx: Receiver<UiCommand>,
     event_tx: Sender<BackendEvent>,
+    shared_devices: Arc<Mutex<Vec<browser::DiscoveredReceiver>>>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         'outer: loop {
@@ -67,8 +77,12 @@ pub fn spawn_command_handler(
             let (addr, pin) = loop {
                 match cmd_rx.recv() {
                     Ok(UiCommand::Connect { addr, pin }) => break (addr, pin),
-                    Ok(_) => {} // ignore stale Pause/Resume/Disconnect
-                    Err(_) => return, // sender dropped → shut down
+                    Ok(UiCommand::VerifyPin { pin }) => {
+                        let devices = shared_devices.lock().unwrap().clone();
+                        handle_verify_pin(&pin, &devices, &event_tx);
+                    }
+                    Ok(_) => {}
+                    Err(_) => return,
                 }
             };
 
@@ -192,7 +206,7 @@ pub fn spawn_command_handler(
                         active.store(false, Ordering::Relaxed);
                         break;
                     }
-                    Ok(UiCommand::StartStreaming { .. }) => {} // ignore duplicate
+                    Ok(UiCommand::StartStreaming { .. } | UiCommand::VerifyPin { .. }) => {}
                     Err(_) => {
                         active.store(false, Ordering::Relaxed);
                         break;
@@ -211,6 +225,36 @@ pub fn spawn_command_handler(
             let _ = event_tx.send(BackendEvent::Disconnected("streaming ended".into()));
         }
     })
+}
+
+fn handle_verify_pin(
+    pin: &str,
+    devices: &[browser::DiscoveredReceiver],
+    event_tx: &Sender<BackendEvent>,
+) {
+    for device in devices {
+        let url = format!("http://{}:{}/verify-pin", device.addr.ip(), device.addr.port());
+        let result = ureq::post(&url)
+            .timeout(Duration::from_secs(2))
+            .send_json(ureq::json!({ "pin": pin }));
+        match result {
+            Ok(response) => {
+                if let Ok(json) = response.into_json::<serde_json::Value>() {
+                    let device_name = json["device_name"]
+                        .as_str()
+                        .unwrap_or(&device.name)
+                        .to_string();
+                    let _ = event_tx.send(BackendEvent::PinMatched {
+                        device_name,
+                        addr: device.addr,
+                    });
+                    return;
+                }
+            }
+            Err(_) => continue,
+        }
+    }
+    let _ = event_tx.send(BackendEvent::PinNotFound);
 }
 
 // ── Negotiation helpers ───────────────────────────────────────────────────────

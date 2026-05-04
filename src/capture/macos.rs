@@ -131,18 +131,16 @@ impl VideoCapture for MacOsCapture {
     }
 
     fn next_frame(&self) -> Option<CapturedFrame> {
-        loop {
-            let sample = self.video_rx.recv().ok()?;
-            let pixel_buffer = sample.image_buffer()?;
-            let timestamp_ns = sample.display_time().unwrap_or_else(|| {
-                let t = sample.presentation_timestamp();
-                (t.value as u64 * 1_000_000_000) / t.timescale as u64
-            });
-            return Some(CapturedFrame {
-                native: pixel_buffer.as_ptr() as NativeFrame,
-                timestamp_ns,
-            });
-        }
+        let sample = self.video_rx.recv().ok()?;
+        let pixel_buffer = sample.image_buffer()?;
+        let timestamp_ns = sample.display_time().unwrap_or_else(|| {
+            let t = sample.presentation_timestamp();
+            (t.value as u64 * 1_000_000_000) / t.timescale as u64
+        });
+        Some(CapturedFrame {
+            native: pixel_buffer.as_ptr() as NativeFrame,
+            timestamp_ns,
+        })
     }
 }
 
