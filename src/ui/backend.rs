@@ -235,7 +235,7 @@ fn handle_verify_pin(
     for device in devices {
         let url = format!("http://{}:{}/verify-pin", device.addr.ip(), device.addr.port());
         let result = ureq::post(&url)
-            .timeout(Duration::from_secs(2))
+            .timeout(Duration::from_millis(500))
             .send_json(ureq::json!({ "pin": pin }));
         match result {
             Ok(response) => {

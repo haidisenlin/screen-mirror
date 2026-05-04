@@ -103,10 +103,12 @@ impl AppCore {
                     self.state = AppState::Idle;
                 }
                 BackendEvent::PinMatched { device_name, addr } => {
-                    self.idle_view.pin_verify_state = PinVerifyState::Matched { device_name, addr };
+                    let pin = self.idle_view.pin_input.clone();
+                    self.idle_view.pin_verify_state = PinVerifyState::Matched { device_name, addr, pin };
                 }
                 BackendEvent::PinNotFound => {
-                    self.idle_view.pin_verify_state = PinVerifyState::NotFound;
+                    let pin = self.idle_view.pin_input.clone();
+                    self.idle_view.pin_verify_state = PinVerifyState::NotFound { pin };
                 }
                 BackendEvent::StreamingStarted => {
                     if matches!(self.state, AppState::ModeSelect { .. }) {
@@ -158,15 +160,19 @@ impl AppCore {
                         pin: pin.clone(),
                     };
                 } else if since.elapsed() >= Duration::from_millis(300) {
+                    let verified_pin = pin.clone();
                     let _ = self.cmd_tx.send(UiCommand::VerifyPin { pin: pin.clone() });
-                    self.idle_view.pin_verify_state = PinVerifyState::Verifying;
+                    self.idle_view.pin_verify_state = PinVerifyState::Verifying { pin: verified_pin };
                 }
             }
-            PinVerifyState::Matched { .. } | PinVerifyState::NotFound => {
-                self.idle_view.pin_verify_state = PinVerifyState::Debouncing {
-                    since: Instant::now(),
-                    pin: pin.clone(),
-                };
+            PinVerifyState::Matched { pin: verified_pin, .. }
+            | PinVerifyState::NotFound { pin: verified_pin } => {
+                if *pin != *verified_pin {
+                    self.idle_view.pin_verify_state = PinVerifyState::Debouncing {
+                        since: Instant::now(),
+                        pin: pin.clone(),
+                    };
+                }
             }
             PinVerifyState::Idle => {
                 self.idle_view.pin_verify_state = PinVerifyState::Debouncing {
@@ -174,12 +180,12 @@ impl AppCore {
                     pin: pin.clone(),
                 };
             }
-            PinVerifyState::Verifying => {}
+            PinVerifyState::Verifying { .. } => {}
         }
     }
 
     fn handle_connect_matched(&mut self) {
-        if let PinVerifyState::Matched { device_name, addr } = &self.idle_view.pin_verify_state {
+        if let PinVerifyState::Matched { device_name, addr, .. } = &self.idle_view.pin_verify_state {
             let addr = *addr;
             let name = device_name.clone();
             let pin = self.idle_view.pin_input.clone();
@@ -266,13 +272,18 @@ impl AppCore {
                             self.idle_view.pin_verify_state = PinVerifyState::Matched {
                                 device_name: "测试电视".to_string(),
                                 addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)), 9000),
+                                pin: self.idle_view.pin_input.clone(),
                             };
                         }
                         egui::Key::Num8 => {
-                            self.idle_view.pin_verify_state = PinVerifyState::NotFound;
+                            self.idle_view.pin_verify_state = PinVerifyState::NotFound {
+                                pin: self.idle_view.pin_input.clone(),
+                            };
                         }
                         egui::Key::Num9 => {
-                            self.idle_view.pin_verify_state = PinVerifyState::Verifying;
+                            self.idle_view.pin_verify_state = PinVerifyState::Verifying {
+                                pin: self.idle_view.pin_input.clone(),
+                            };
                         }
                         _ => {}
                     }
@@ -1270,7 +1281,8 @@ mod tests {
     #[test]
     fn pin_matched_event_updates_state() {
         let (mut core, evt_tx, _cmd_rx) = make_core();
-        core.idle_view.pin_verify_state = PinVerifyState::Verifying;
+        core.idle_view.pin_input = "123456".to_string();
+        core.idle_view.pin_verify_state = PinVerifyState::Verifying { pin: "123456".to_string() };
         let addr: SocketAddr = "192.168.1.100:9000".parse().unwrap();
         evt_tx
             .send(BackendEvent::PinMatched {
@@ -1288,12 +1300,13 @@ mod tests {
     #[test]
     fn pin_not_found_event_updates_state() {
         let (mut core, evt_tx, _cmd_rx) = make_core();
-        core.idle_view.pin_verify_state = PinVerifyState::Verifying;
+        core.idle_view.pin_input = "123456".to_string();
+        core.idle_view.pin_verify_state = PinVerifyState::Verifying { pin: "123456".to_string() };
         evt_tx.send(BackendEvent::PinNotFound).unwrap();
         core.process_backend_events();
         assert!(matches!(
             core.idle_view.pin_verify_state,
-            PinVerifyState::NotFound
+            PinVerifyState::NotFound { .. }
         ));
     }
 
@@ -1305,11 +1318,55 @@ mod tests {
         core.idle_view.pin_verify_state = PinVerifyState::Matched {
             device_name: "客厅电视".to_string(),
             addr,
+            pin: "123456".to_string(),
         };
         core.handle_connect_matched();
         let cmd = cmd_rx.try_recv().unwrap();
         assert!(matches!(cmd, UiCommand::Connect { .. }));
         assert!(matches!(core.state, AppState::Connecting { .. }));
         assert!(core.idle_view.connecting);
+    }
+
+    #[test]
+    fn pin_verify_no_refire_when_pin_unchanged() {
+        let (mut core, _evt_tx, cmd_rx) = make_core();
+        core.idle_view.pin_input = "123456".to_string();
+        core.idle_view.pin_verify_state = PinVerifyState::Matched {
+            device_name: "TV".to_string(),
+            addr: "192.168.1.1:9000".parse().unwrap(),
+            pin: "123456".to_string(),
+        };
+        core.check_pin_verify();
+        // Should stay in Matched — no re-debounce
+        assert!(matches!(core.idle_view.pin_verify_state, PinVerifyState::Matched { .. }));
+        assert!(cmd_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn pin_verify_refires_when_pin_changed() {
+        let (mut core, _evt_tx, _cmd_rx) = make_core();
+        core.idle_view.pin_input = "654321".to_string();
+        core.idle_view.pin_verify_state = PinVerifyState::Matched {
+            device_name: "TV".to_string(),
+            addr: "192.168.1.1:9000".parse().unwrap(),
+            pin: "123456".to_string(),
+        };
+        core.check_pin_verify();
+        // Should re-debounce because PIN changed
+        assert!(matches!(core.idle_view.pin_verify_state, PinVerifyState::Debouncing { .. }));
+    }
+
+    #[test]
+    fn pin_verify_debounce_fires_after_300ms() {
+        let (mut core, _evt_tx, cmd_rx) = make_core();
+        core.idle_view.pin_input = "123456".to_string();
+        core.idle_view.pin_verify_state = PinVerifyState::Debouncing {
+            since: Instant::now() - Duration::from_millis(301),
+            pin: "123456".to_string(),
+        };
+        core.check_pin_verify();
+        assert!(matches!(core.idle_view.pin_verify_state, PinVerifyState::Verifying { .. }));
+        let cmd = cmd_rx.try_recv().unwrap();
+        assert!(matches!(cmd, UiCommand::VerifyPin { .. }));
     }
 }

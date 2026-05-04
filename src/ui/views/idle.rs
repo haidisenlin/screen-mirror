@@ -10,9 +10,9 @@ use crate::ui::theme::*;
 pub enum PinVerifyState {
     Idle,
     Debouncing { since: Instant, pin: String },
-    Verifying,
-    Matched { device_name: String, addr: SocketAddr },
-    NotFound,
+    Verifying { pin: String },
+    Matched { device_name: String, addr: SocketAddr, pin: String },
+    NotFound { pin: String },
 }
 
 impl Default for PinVerifyState {
@@ -359,14 +359,14 @@ pub fn render(ui: &mut Ui, state: &mut IdleViewState) -> IdleAction {
                 Stroke::NONE,
                 true,
             ),
-            PinVerifyState::Verifying => (
+            PinVerifyState::Verifying { .. } => (
                 "匹配中...".to_string(),
                 COLOR_MUTED,
                 COLOR_BG_CARD,
                 Stroke::new(1.0, COLOR_BORDER),
                 false,
             ),
-            PinVerifyState::NotFound => (
+            PinVerifyState::NotFound { .. } => (
                 "未找到设备".to_string(),
                 COLOR_ERROR,
                 COLOR_BG_CARD,
