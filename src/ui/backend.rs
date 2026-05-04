@@ -416,12 +416,12 @@ fn run_streaming_loop_inner(
                         udp_socket.send(&encrypted_fec)?;
                     }
                 }
-                if i == nal_count - 1 {
-                    if let Some(fec_pkt) = video_fec.flush() {
-                        let encrypted_fec = media_cipher.seal(&fec_pkt.serialize());
-                        bytes_sent += encrypted_fec.len() as u64;
-                        udp_socket.send(&encrypted_fec)?;
-                    }
+                if i == nal_count - 1
+                    && let Some(fec_pkt) = video_fec.flush()
+                {
+                    let encrypted_fec = media_cipher.seal(&fec_pkt.serialize());
+                    bytes_sent += encrypted_fec.len() as u64;
+                    udp_socket.send(&encrypted_fec)?;
                 }
             }
         }
@@ -562,12 +562,12 @@ fn run_streaming_loop_inner(
                         udp_socket.send(&encrypted_fec)?;
                     }
                 }
-                if i == nal_count - 1 {
-                    if let Some(fec_pkt) = video_fec.flush() {
-                        let encrypted_fec = media_cipher.seal(&fec_pkt.serialize());
-                        bytes_sent += encrypted_fec.len() as u64;
-                        udp_socket.send(&encrypted_fec)?;
-                    }
+                if i == nal_count - 1
+                    && let Some(fec_pkt) = video_fec.flush()
+                {
+                    let encrypted_fec = media_cipher.seal(&fec_pkt.serialize());
+                    bytes_sent += encrypted_fec.len() as u64;
+                    udp_socket.send(&encrypted_fec)?;
                 }
             }
         }

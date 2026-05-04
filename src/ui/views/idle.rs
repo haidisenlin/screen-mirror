@@ -109,13 +109,13 @@ pub fn render(ui: &mut Ui, state: &mut IdleViewState) -> IdleAction {
         ui.add_space(PADDING);
         let btn = Button::new("连 接")
             .min_size(Vec2::new(ui.available_width() - PADDING * 2.0, BUTTON_HEIGHT));
-        if ui.add_enabled(can_connect, btn).clicked() {
-            if let Some(idx) = state.selected_device {
-                action = IdleAction::Connect {
-                    device_index: idx,
-                    pin: state.pin_input.clone(),
-                };
-            }
+        if ui.add_enabled(can_connect, btn).clicked()
+            && let Some(idx) = state.selected_device
+        {
+            action = IdleAction::Connect {
+                device_index: idx,
+                pin: state.pin_input.clone(),
+            };
         }
     });
 

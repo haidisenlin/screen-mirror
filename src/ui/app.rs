@@ -128,13 +128,13 @@ impl AppCore {
     }
 
     fn check_connecting_timeout(&mut self) {
-        if let AppState::Connecting { started_at, .. } = &self.state {
-            if started_at.elapsed() >= CONNECT_TIMEOUT {
-                self.idle_view.connecting = false;
-                self.idle_view.connecting_device = None;
-                self.idle_view.error = Some("连接超时".to_string());
-                self.state = AppState::Idle;
-            }
+        if let AppState::Connecting { started_at, .. } = &self.state
+            && started_at.elapsed() >= CONNECT_TIMEOUT
+        {
+            self.idle_view.connecting = false;
+            self.idle_view.connecting_device = None;
+            self.idle_view.error = Some("连接超时".to_string());
+            self.state = AppState::Idle;
         }
     }
 
@@ -146,19 +146,19 @@ impl AppCore {
         match &mut self.state {
             AppState::Idle | AppState::Connecting { .. } => {
                 let action = crate::ui::views::idle::render(ui, &mut self.idle_view);
-                if let IdleAction::Connect { device_index, pin } = action {
-                    if let Some(device) = self.idle_view.devices.get(device_index) {
-                        let addr = device.addr;
-                        let name = device.name.clone();
-                        self.idle_view.connecting = true;
-                        self.idle_view.connecting_device = Some(name.clone());
-                        self.idle_view.error = None;
-                        self.state = AppState::Connecting {
-                            device_name: name,
-                            started_at: Instant::now(),
-                        };
-                        let _ = self.cmd_tx.send(UiCommand::Connect { addr, pin });
-                    }
+                if let IdleAction::Connect { device_index, pin } = action
+                    && let Some(device) = self.idle_view.devices.get(device_index)
+                {
+                    let addr = device.addr;
+                    let name = device.name.clone();
+                    self.idle_view.connecting = true;
+                    self.idle_view.connecting_device = Some(name.clone());
+                    self.idle_view.error = None;
+                    self.state = AppState::Connecting {
+                        device_name: name,
+                        started_at: Instant::now(),
+                    };
+                    let _ = self.cmd_tx.send(UiCommand::Connect { addr, pin });
                 }
             }
             AppState::ModeSelect { device_name } => {
@@ -227,24 +227,22 @@ impl App {
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Check tray click events — toggle panel visibility
-        if let Ok(event) = TrayIconEvent::receiver().try_recv() {
-            if let TrayIconEvent::Click { rect, .. } = event {
-                self.core.visible = !self.core.visible;
-                if self.core.visible {
-                    let pos = calculate_position(rect);
-                    ctx.send_viewport_cmd(ViewportCommand::OuterPosition(pos));
-                    ctx.send_viewport_cmd(ViewportCommand::Focus);
-                }
-                ctx.send_viewport_cmd(ViewportCommand::Visible(self.core.visible));
+        if let Ok(TrayIconEvent::Click { rect, .. }) = TrayIconEvent::receiver().try_recv() {
+            self.core.visible = !self.core.visible;
+            if self.core.visible {
+                let pos = calculate_position(rect);
+                ctx.send_viewport_cmd(ViewportCommand::OuterPosition(pos));
+                ctx.send_viewport_cmd(ViewportCommand::Focus);
             }
+            ctx.send_viewport_cmd(ViewportCommand::Visible(self.core.visible));
         }
 
         // Hide on focus loss
-        if let Some(false) = ctx.input(|i| i.viewport().focused) {
-            if self.core.visible {
-                self.core.visible = false;
-                ctx.send_viewport_cmd(ViewportCommand::Visible(false));
-            }
+        if let Some(false) = ctx.input(|i| i.viewport().focused)
+            && self.core.visible
+        {
+            self.core.visible = false;
+            ctx.send_viewport_cmd(ViewportCommand::Visible(false));
         }
 
         self.core.process_backend_events();

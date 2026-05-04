@@ -38,6 +38,12 @@ fn create_icon(r: u8, g: u8, b: u8) -> Icon {
     Icon::from_rgba(rgba, size, size).expect("valid icon data")
 }
 
+impl Default for AppTray {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AppTray {
     pub fn new() -> Self {
         let icon_idle = create_icon(128, 128, 128);
