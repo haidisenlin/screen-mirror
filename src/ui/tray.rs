@@ -1,7 +1,7 @@
 use eframe::egui;
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayState {
     Idle,
     Streaming,

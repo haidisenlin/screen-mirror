@@ -62,7 +62,7 @@ pub fn spawn_command_handler(
     event_tx: Sender<BackendEvent>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
-        loop {
+        'outer: loop {
             // ── Phase 1: wait for Connect ─────────────────────────────────
             let (addr, pin) = loop {
                 match cmd_rx.recv() {
@@ -119,15 +119,12 @@ pub fn spawn_command_handler(
                     Ok(UiCommand::StartStreaming { .. }) => break,
                     Ok(UiCommand::Disconnect) => {
                         let _ = channel.shutdown();
-                        let _ = event_tx.send(BackendEvent::Disconnected("user disconnected".into()));
-                        // Go back to outer loop (wait for Connect)
-                        break;
+                        let _ = event_tx.send(BackendEvent::Disconnected(String::new()));
+                        continue 'outer;
                     }
                     Ok(_) => {} // ignore Pause/Resume before streaming
                     Err(_) => return,
                 }
-                // If we hit Disconnect above, we already `continue`d via the outer label —
-                // but `break` here exits to the outer match. Handle via a flag instead.
             }
 
             // Perform negotiation before starting the streaming sub-thread.

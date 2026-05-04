@@ -34,7 +34,7 @@ pub fn render(ui: &mut Ui, device_name: &str, stats: &StreamStats) -> StreamingA
         ui.horizontal(|ui| {
             ui.add_space(PADDING);
             ui.label(RichText::new(*label).color(COLOR_MUTED));
-            ui.add_space(STAT_LABEL_WIDTH - ui.min_rect().width());
+            ui.add_space((STAT_LABEL_WIDTH - ui.min_rect().width()).max(0.0));
             ui.label(value.as_str());
         });
         ui.add_space(2.0);
