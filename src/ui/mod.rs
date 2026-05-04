@@ -1,3 +1,4 @@
+pub mod app;
 pub mod messages;
 pub mod theme;
 pub mod tray;
