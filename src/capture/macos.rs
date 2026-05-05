@@ -8,7 +8,9 @@ use screencapturekit::prelude::{
     SCStreamOutputType,
 };
 
-use crate::ui::messages::WindowInfo;
+use screencapturekit::cg::CGRect;
+
+use crate::ui::messages::{CaptureMode, WindowInfo};
 use super::{CaptureConfig, CaptureError, CapturedFrame, NativeFrame, VideoCapture};
 
 pub fn list_windows_macos() -> Vec<WindowInfo> {
@@ -103,30 +105,63 @@ impl VideoCapture for MacOsCapture {
             .next()
             .ok_or_else(|| anyhow::anyhow!("no display found"))?;
 
-        let (cap_w, cap_h) = if config.width == 0 || config.height == 0 {
-            let display_id = display.display_id();
-            physical_display_size(display_id)
-                .or_else(|| {
-                    let fallback_id = unsafe { CGMainDisplayID() };
-                    physical_display_size(fallback_id)
-                })
-                .unwrap_or((1920, 1080))
-        } else {
-            (config.width, config.height)
+        let filter = match &config.mode {
+            CaptureMode::FullScreen => {
+                SCContentFilter::create()
+                    .with_display(&display)
+                    .with_excluding_windows(&[])
+                    .build()
+            }
+            CaptureMode::Window { id, .. } => {
+                let window = content
+                    .windows()
+                    .into_iter()
+                    .find(|w| w.window_id() as u64 == *id)
+                    .ok_or_else(|| anyhow::anyhow!("window not found: {id}"))?;
+                SCContentFilter::create()
+                    .with_window(&window)
+                    .build()
+            }
+            CaptureMode::Region { .. } => {
+                SCContentFilter::create()
+                    .with_display(&display)
+                    .with_excluding_windows(&[])
+                    .build()
+            }
         };
 
-        let filter = SCContentFilter::create()
-            .with_display(&display)
-            .with_excluding_windows(&[])
-            .build();
+        let (cap_w, cap_h) = match &config.mode {
+            CaptureMode::Region { width, height, .. } => (*width as u32, *height as u32),
+            _ => {
+                if config.width == 0 || config.height == 0 {
+                    let display_id = display.display_id();
+                    physical_display_size(display_id)
+                        .or_else(|| {
+                            let fallback_id = unsafe { CGMainDisplayID() };
+                            physical_display_size(fallback_id)
+                        })
+                        .unwrap_or((1920, 1080))
+                } else {
+                    (config.width, config.height)
+                }
+            }
+        };
 
-        let sc_config = SCStreamConfiguration::new()
+        let mut sc_config = SCStreamConfiguration::new()
             .with_width(cap_w)
             .with_height(cap_h)
             .with_fps(config.fps)
             .with_captures_audio(true)
             .with_sample_rate(48000)
             .with_channel_count(2);
+
+        if let CaptureMode::Region { x, y, width, height } = &config.mode {
+            sc_config = sc_config.with_source_rect(CGRect::new(*x, *y, *width, *height));
+        }
+
+        if matches!(&config.mode, CaptureMode::Window { .. }) {
+            sc_config = sc_config.with_ignores_shadows_single_window(true);
+        }
 
         let (video_tx, video_rx) = mpsc::sync_channel(2);
         let (audio_tx, audio_rx) = mpsc::sync_channel(8);

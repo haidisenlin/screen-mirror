@@ -34,9 +34,10 @@ tray-icon = "0.19"
 image = { version = "0.25", default-features = false, features = ["png"] }
 ureq = { version = "2", features = ["json"] }
 tiny_http = "0.12"
+network-interface = "2.0.5"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-screencapturekit = "1"
+screencapturekit = { version = "1", features = ["macos_14_0"] }
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSObject", "NSData"] }
 objc2-metal = { version = "0.3", features = ["MTLDevice", "MTLTexture", "MTLCommandQueue", "MTLCommandBuffer", "MTLRenderCommandEncoder", "MTLRenderPipeline", "MTLLibrary", "MTLCommandEncoder", "MTLDrawable", "MTLBlitCommandEncoder", "MTLAllocation", "MTLResource", "MTLTypes", "MTLPixelFormat"] }
