@@ -1,14 +1,16 @@
 use eframe::egui::{self, Button, CornerRadius, Frame, RichText, Ui, Vec2};
 
-use crate::ui::messages::CaptureMode;
+use crate::ui::messages::{CaptureMode, WindowInfo};
 use crate::ui::theme::*;
 
 pub enum ModeAction {
     None,
     Start(CaptureMode),
+    RequestWindowList,
+    StartRegionSelect,
 }
 
-pub fn render(ui: &mut Ui, device_name: &str) -> ModeAction {
+pub fn render(ui: &mut Ui, device_name: &str, window_list: &[WindowInfo]) -> ModeAction {
     let mut action = ModeAction::None;
 
     // Header
@@ -100,27 +102,68 @@ pub fn render(ui: &mut Ui, device_name: &str) -> ModeAction {
 
         ui.add_space(SPACING);
 
-        // Window select - disabled
+        // Window select - enabled
         let btn = Button::new(
-            RichText::new("🪟\n选择窗口\n即将推出").size(10.0).color(COLOR_MUTED),
+            RichText::new("🪟\n选择窗口").size(12.0).color(COLOR_TEXT).strong(),
         )
         .fill(COLOR_BG_CARD)
+        .stroke(egui::Stroke::new(1.5, COLOR_BRAND))
         .corner_radius(CornerRadius::same(CARD_ROUNDING))
         .min_size(Vec2::new(card_width, 70.0));
-        ui.add_enabled(false, btn);
+        if ui.add(btn).clicked() {
+            action = ModeAction::RequestWindowList;
+        }
 
         ui.add_space(SPACING);
 
-        // Custom region - disabled
+        // Custom region - enabled
         let btn = Button::new(
-            RichText::new("⬜\n自定义区域\n即将推出").size(10.0).color(COLOR_MUTED),
+            RichText::new("⬜\n自定义区域").size(12.0).color(COLOR_TEXT).strong(),
         )
         .fill(COLOR_BG_CARD)
+        .stroke(egui::Stroke::new(1.5, COLOR_BRAND))
         .corner_radius(CornerRadius::same(CARD_ROUNDING))
         .min_size(Vec2::new(card_width, 70.0));
-        ui.add_enabled(false, btn);
+        if ui.add(btn).clicked() {
+            action = ModeAction::StartRegionSelect;
+        }
     });
 
     ui.add_space(PADDING);
+
+    // Window list (shown when populated)
+    if !window_list.is_empty() {
+        ui.add_space(12.0);
+        ui.horizontal(|ui| {
+            ui.add_space(PADDING);
+            ui.label(RichText::new("选择窗口").size(11.0).color(COLOR_MUTED).strong());
+        });
+        ui.add_space(4.0);
+
+        egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+            for win in window_list {
+                ui.horizontal(|ui| {
+                    ui.add_space(PADDING);
+                    let label = if win.app_name.is_empty() {
+                        win.title.clone()
+                    } else {
+                        format!("{} — {}", win.app_name, win.title)
+                    };
+                    let btn = Button::new(RichText::new(&label).size(12.0).color(COLOR_TEXT))
+                        .fill(COLOR_BG_WHITE)
+                        .corner_radius(CornerRadius::same(ITEM_ROUNDING))
+                        .min_size(Vec2::new(PANEL_WIDTH - 32.0, 32.0));
+                    if ui.add(btn).clicked() {
+                        action = ModeAction::Start(CaptureMode::Window {
+                            id: win.id,
+                            title: win.title.clone(),
+                        });
+                    }
+                });
+                ui.add_space(2.0);
+            }
+        });
+    }
+
     action
 }

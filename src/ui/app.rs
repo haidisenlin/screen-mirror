@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use eframe::egui::{self, ViewportCommand};
 
 use crate::ui::anim::AiBackground;
-use crate::ui::messages::{BackendEvent, StreamStats, UiCommand};
+use crate::ui::messages::{BackendEvent, StreamStats, UiCommand, WindowInfo};
 use crate::ui::theme::{PANEL_MAX_HEIGHT, PANEL_WIDTH};
 use crate::ui::tray::{AppTray, TrayState};
 use crate::ui::views::idle::{IdleAction, IdleViewState, PinVerifyState};
@@ -41,6 +41,7 @@ struct AppCore {
     background: AiBackground,
     cmd_tx: mpsc::Sender<UiCommand>,
     event_rx: mpsc::Receiver<BackendEvent>,
+    window_list: Vec<WindowInfo>,
 }
 
 impl AppCore {
@@ -61,6 +62,7 @@ impl AppCore {
             background: AiBackground::new(),
             cmd_tx,
             event_rx,
+            window_list: Vec::new(),
         }
     }
 
@@ -140,7 +142,9 @@ impl AppCore {
                     self.idle_view.connecting_device = None;
                     self.state = AppState::Idle;
                 }
-                BackendEvent::WindowList(_) => {}
+                BackendEvent::WindowList(list) => {
+                    self.window_list = list;
+                }
                 BackendEvent::CaptureTargetLost { .. } => {}
             }
         }
@@ -326,9 +330,18 @@ impl AppCore {
             }
             AppState::ModeSelect { device_name } => {
                 let device_name = device_name.clone();
-                let action = crate::ui::views::mode::render(ui, &device_name);
-                if let ModeAction::Start(mode) = action {
-                    let _ = self.cmd_tx.send(UiCommand::StartStreaming { mode });
+                let action = crate::ui::views::mode::render(ui, &device_name, &self.window_list);
+                match action {
+                    ModeAction::Start(mode) => {
+                        let _ = self.cmd_tx.send(UiCommand::StartStreaming { mode });
+                    }
+                    ModeAction::RequestWindowList => {
+                        let _ = self.cmd_tx.send(UiCommand::ListWindows);
+                    }
+                    ModeAction::StartRegionSelect => {
+                        // Will be fully wired in Task 9
+                    }
+                    ModeAction::None => {}
                 }
             }
             AppState::Streaming { device_name, stats } => {
