@@ -1479,6 +1479,91 @@ mod tests {
     }
 
     #[test]
+    fn mode_select_to_region_select_and_back() {
+        let (mut core, _evt_tx, _cmd_rx) = make_core();
+        core.state = AppState::ModeSelect { device_name: "TV".to_string() };
+
+        // Simulate entering region select
+        core.state = AppState::RegionSelect { device_name: "TV".to_string() };
+        assert!(matches!(core.state, AppState::RegionSelect { .. }));
+
+        // Simulate cancel → back to ModeSelect
+        core.state = AppState::ModeSelect { device_name: "TV".to_string() };
+        assert!(matches!(core.state, AppState::ModeSelect { .. }));
+    }
+
+    #[test]
+    fn capture_target_lost_increments_session_gen() {
+        let (mut core, evt_tx, _cmd_rx) = make_core();
+        core.state = AppState::Streaming {
+            device_name: "TV".to_string(),
+            stats: StreamStats {
+                resolution_w: 0, resolution_h: 0, fps: 0.0,
+                bitrate_bps: 0, latency_ms: 0.0, packet_loss_pct: 0.0,
+            },
+        };
+        let gen_before = core.session_gen;
+
+        evt_tx.send(BackendEvent::CaptureTargetLost { reason: "window closed".to_string() }).unwrap();
+        core.process_backend_events();
+
+        assert_eq!(core.session_gen, gen_before + 1);
+        assert!(matches!(core.state, AppState::ModeSelect { .. }));
+    }
+
+    #[test]
+    fn window_list_cleared_on_new_session() {
+        let (mut core, evt_tx, _cmd_rx) = make_core();
+        core.window_list = vec![WindowInfo { id: 1, title: "X".to_string(), app_name: "Y".to_string() }];
+        core.state = AppState::Connecting {
+            device_name: "TV".to_string(),
+            started_at: Instant::now(),
+        };
+
+        evt_tx.send(BackendEvent::PairingSuccess).unwrap();
+        core.process_backend_events();
+
+        assert!(core.window_list.is_empty());
+    }
+
+    #[test]
+    fn start_streaming_with_window_mode() {
+        let (mut core, _evt_tx, cmd_rx) = make_core();
+        core.state = AppState::ModeSelect { device_name: "TV".to_string() };
+
+        let mode = CaptureMode::Window { id: 42, title: "Firefox".to_string() };
+        let _ = core.cmd_tx.send(UiCommand::StartStreaming { mode });
+
+        let cmd = cmd_rx.try_recv().unwrap();
+        assert!(matches!(cmd, UiCommand::StartStreaming { mode: CaptureMode::Window { id: 42, .. } }));
+    }
+
+    #[test]
+    fn capture_target_lost_from_paused() {
+        let (mut core, evt_tx, _cmd_rx) = make_core();
+        core.state = AppState::Paused { device_name: "TV".to_string() };
+
+        evt_tx.send(BackendEvent::CaptureTargetLost { reason: "app quit".to_string() }).unwrap();
+        core.process_backend_events();
+
+        assert!(matches!(core.state, AppState::ModeSelect { .. }));
+    }
+
+    #[test]
+    fn capture_target_lost_from_idle_ignored() {
+        let (mut core, evt_tx, _cmd_rx) = make_core();
+        assert!(matches!(core.state, AppState::Idle));
+        let gen_before = core.session_gen;
+
+        evt_tx.send(BackendEvent::CaptureTargetLost { reason: "test".to_string() }).unwrap();
+        core.process_backend_events();
+
+        // Should stay Idle, session_gen unchanged
+        assert!(matches!(core.state, AppState::Idle));
+        assert_eq!(core.session_gen, gen_before);
+    }
+
+    #[test]
     fn window_list_event_populates_list() {
         let (mut core, evt_tx, _cmd_rx) = make_core();
         core.state = AppState::ModeSelect { device_name: "TV".to_string() };
