@@ -30,6 +30,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 hostname = "0.4"
 eframe = { version = "0.34", default-features = false, features = ["default_fonts", "glow"] }
+egui-toast = "0.20"
 tray-icon = "0.19"
 image = { version = "0.25", default-features = false, features = ["png"] }
 ureq = { version = "2", features = ["json"] }

@@ -2,6 +2,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, ViewportCommand};
+use egui_toast::{Toast, ToastKind, ToastOptions, Toasts};
 
 use crate::ui::anim::AiBackground;
 use crate::ui::messages::{BackendEvent, CaptureMode, StreamStats, UiCommand, WindowInfo};
@@ -49,6 +50,7 @@ struct AppCore {
     session_gen: u64,
     region_select: Option<RegionSelectView>,
     is_fullscreen: bool,
+    toasts: Toasts,
 }
 
 impl AppCore {
@@ -73,6 +75,9 @@ impl AppCore {
             session_gen: 0,
             region_select: None,
             is_fullscreen: false,
+            toasts: Toasts::new()
+                .anchor(egui::Align2::RIGHT_BOTTOM, (-10.0, -10.0))
+                .direction(egui::Direction::BottomUp),
         }
     }
 
@@ -157,7 +162,7 @@ impl AppCore {
                 BackendEvent::WindowList(list) => {
                     self.window_list = list;
                 }
-                BackendEvent::CaptureTargetLost { reason: _ } => {
+                BackendEvent::CaptureTargetLost { reason } => {
                     if let AppState::Streaming { device_name, .. }
                     | AppState::Paused { device_name } =
                         std::mem::replace(&mut self.state, AppState::Idle)
@@ -165,6 +170,14 @@ impl AppCore {
                         self.session_gen += 1;
                         self.window_list.clear();
                         self.state = AppState::ModeSelect { device_name };
+                        self.toasts.add(Toast {
+                            kind: ToastKind::Warning,
+                            text: format!("捕获目标丢失: {reason}").into(),
+                            options: ToastOptions::default()
+                                .duration_in_seconds(5.0)
+                                .show_progress(true),
+                            ..Default::default()
+                        });
                     }
                 }
             }
@@ -445,6 +458,7 @@ impl AppCore {
                 }
             }
         }
+        self.toasts.show(ui);
     }
 }
 
