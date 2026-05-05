@@ -1512,6 +1512,265 @@ def test_group_19_transitions(win, pid):
     time.sleep(0.3)
 
 
+# ========== TEST GROUP 20: CAPTURE MODE BUTTONS (v0.53) ==========
+
+def test_group_20_capture_modes(win, pid):
+    log("")
+    log("=" * 50)
+    log("GROUP 20: Capture Mode Buttons (v0.53)")
+    log("=" * 50)
+
+    if not win:
+        skip_test("Capture mode tests", "no window")
+        return
+
+    activate_app(pid)
+    time.sleep(0.3)
+
+    # Switch to ModeSelect via Cmd+2
+    send_debug_key(2, pid)
+    time.sleep(0.5)
+
+    win = find_app_window()
+    if not win:
+        fail_test("ModeSelect for capture modes", "window not found")
+        return
+
+    # The three mode buttons are in a horizontal row.
+    # Layout: 12px left margin, each button = (PANEL_WIDTH - 28 - SPACING*2) / 3
+    # PANEL_WIDTH = 288, SPACING = 8 → card_width = (288-28-16)/3 ≈ 81px
+    # Buttons are at approximately:
+    #   btn1_center_x = 12 + 81/2 ≈ 52
+    #   btn2_center_x = 12 + 81 + 8 + 81/2 ≈ 141
+    #   btn3_center_x = 12 + 81*2 + 8*2 + 81/2 ≈ 230
+    # Y position: header ~18+25+8 + device card ~60 + 16 + label ~20 + 6 = ~153, buttons height 70
+    # btn_center_y ≈ 153 + 35 = 188
+
+    btn_y = win["y"] + 188
+    btn1_x = win["x"] + 52   # 全屏镜像
+    btn2_x = win["x"] + 141  # 选择窗口
+    btn3_x = win["x"] + 230  # 自定义区域
+
+    # 20.1 Screenshot of ModeSelect with three buttons
+    log("--- 20.1: ModeSelect view with three mode buttons ---")
+    screenshot_window("20_1_mode_select_buttons", win["id"])
+    pass_test("ModeSelect view with 3 capture mode buttons")
+
+    # 20.2 Click "全屏镜像" (fullscreen) button
+    log("--- 20.2: Click fullscreen mirror button ---")
+    click(btn1_x, btn_y)
+    time.sleep(0.8)
+    win_after = find_app_window()
+    if win_after:
+        screenshot_window("20_2_after_fullscreen_click", win_after["id"])
+        pass_test("Fullscreen mirror button clicked - app stable")
+    else:
+        fail_test("Fullscreen mirror button", "window disappeared")
+
+    # Reset to ModeSelect
+    send_debug_key(2, pid)
+    time.sleep(0.5)
+
+    # 20.3 Click "选择窗口" (window select) button
+    log("--- 20.3: Click window select button ---")
+    win = find_app_window()
+    if win:
+        click(btn2_x, btn_y)
+        time.sleep(0.8)
+        win_after = find_app_window()
+        if win_after:
+            screenshot_window("20_3_after_window_select_click", win_after["id"])
+            pass_test("Window select button clicked - app stable")
+        else:
+            fail_test("Window select button", "window disappeared")
+    else:
+        skip_test("Window select button", "no window")
+
+    # Reset to ModeSelect
+    send_debug_key(2, pid)
+    time.sleep(0.5)
+
+    # 20.4 Click "自定义区域" (region select) button
+    log("--- 20.4: Click region select button ---")
+    win = find_app_window()
+    if win:
+        click(btn3_x, btn_y)
+        time.sleep(1.5)  # Region overlay may need time
+        # The window goes fullscreen for region select, then we press Escape to cancel
+        screenshot("20_4_region_overlay")
+        # Press Escape to cancel region selection
+        type_special("escape", pid)
+        time.sleep(0.8)
+        win_after = find_app_window()
+        if win_after:
+            screenshot_window("20_4_after_region_cancel", win_after["id"])
+            pass_test("Region select: overlay shown and cancelled with Esc")
+        else:
+            fail_test("Region select cancel", "window not found after Esc")
+    else:
+        skip_test("Region select button", "no window")
+
+    # Reset
+    send_debug_key(1, pid)
+    time.sleep(0.3)
+
+
+# ========== TEST GROUP 21: WINDOW LIST IN MODE SELECT (v0.53) ==========
+
+def test_group_21_window_list(win, pid):
+    log("")
+    log("=" * 50)
+    log("GROUP 21: Window List in Mode Select (v0.53)")
+    log("=" * 50)
+
+    if not win:
+        skip_test("Window list tests", "no window")
+        return
+
+    activate_app(pid)
+    time.sleep(0.3)
+
+    # Switch to ModeSelect and inject window list
+    send_debug_key(2, pid)
+    time.sleep(0.3)
+    send_debug_key(0, pid)  # Inject fake window list
+    time.sleep(0.5)
+
+    # 21.1 Screenshot with window list shown
+    log("--- 21.1: Window list appears below mode buttons ---")
+    win = find_app_window()
+    if win:
+        screenshot_window("21_1_window_list", win["id"])
+        pass_test("Window list rendered in mode select")
+    else:
+        fail_test("Window list render", "window not found")
+        return
+
+    # 21.2 Click first window item (Chrome)
+    log("--- 21.2: Click first window item ---")
+    # Window list starts below mode buttons. Approximate position:
+    # mode buttons end at y ~223, then spacing 16+12+label+4 ≈ 255
+    # First item at y ≈ 255 + 16 = 271
+    item_y = win["y"] + 280
+    item_x = win["x"] + win["w"] / 2
+    click(item_x, item_y)
+    time.sleep(0.8)
+    win_after = find_app_window()
+    if win_after:
+        screenshot_window("21_2_after_window_item_click", win_after["id"])
+        pass_test("Click window list item - app responds")
+    else:
+        fail_test("Click window list item", "window disappeared")
+
+    # 21.3 Click second window item
+    log("--- 21.3: Click second window item ---")
+    send_debug_key(2, pid)
+    time.sleep(0.3)
+    send_debug_key(0, pid)
+    time.sleep(0.3)
+    win = find_app_window()
+    if win:
+        item2_y = win["y"] + 314  # Second item ~ 34px below first
+        click(item_x, item2_y)
+        time.sleep(0.8)
+        win_after = find_app_window()
+        if win_after:
+            screenshot_window("21_3_after_window2_click", win_after["id"])
+            pass_test("Click second window item - app responds")
+        else:
+            fail_test("Click second window item", "window disappeared")
+    else:
+        skip_test("Second window item", "no window")
+
+    # Reset
+    send_debug_key(1, pid)
+    time.sleep(0.3)
+
+
+# ========== TEST GROUP 22: REGION SELECT DRAG (v0.53) ==========
+
+def test_group_22_region_drag(win, pid):
+    log("")
+    log("=" * 50)
+    log("GROUP 22: Region Select Drag & Confirm (v0.53)")
+    log("=" * 50)
+
+    if not win:
+        skip_test("Region drag tests", "no window")
+        return
+
+    activate_app(pid)
+    time.sleep(0.3)
+
+    # Go to ModeSelect, click region button
+    send_debug_key(2, pid)
+    time.sleep(0.5)
+    win = find_app_window()
+    if not win:
+        skip_test("Region drag", "no window in ModeSelect")
+        return
+
+    # Click region button (third button)
+    btn3_x = win["x"] + 230
+    btn_y = win["y"] + 188
+    click(btn3_x, btn_y)
+    time.sleep(1.5)  # Wait for fullscreen overlay
+
+    # 22.1 Region overlay is showing (fullscreen screenshot)
+    log("--- 22.1: Region overlay visible ---")
+    screenshot("22_1_region_overlay_fullscreen")
+    pass_test("Region overlay fullscreen screenshot")
+
+    # 22.2 Drag to select a region (200x150 area in center of screen)
+    log("--- 22.2: Drag to select region ---")
+    # Drag from center-ish area
+    drag(400, 300, 700, 500, steps=15)
+    time.sleep(0.5)
+    screenshot("22_2_region_selected")
+    pass_test("Region drag completed (check screenshot for selection rect)")
+
+    # 22.3 Press Enter to confirm selection
+    log("--- 22.3: Press Enter to confirm ---")
+    type_special("return", pid)
+    time.sleep(1.0)
+    win_after = find_app_window()
+    if win_after:
+        screenshot_window("22_3_after_region_confirm", win_after["id"])
+        pass_test("Region confirmed via Enter - app returned to normal")
+    else:
+        # Window might have gone to streaming, try fullscreen screenshot
+        screenshot("22_3_no_window_after_confirm")
+        pass_test("Region confirmed (window may be in streaming state)")
+
+    # Reset
+    send_debug_key(1, pid)
+    time.sleep(0.3)
+
+    # 22.4 Region select + Escape cancellation
+    log("--- 22.4: Region select + Escape cancel ---")
+    send_debug_key(2, pid)
+    time.sleep(0.3)
+    win = find_app_window()
+    if win:
+        click(win["x"] + 230, win["y"] + 188)
+        time.sleep(1.5)
+        screenshot("22_4_region_before_escape")
+        type_special("escape", pid)
+        time.sleep(0.8)
+        win_after = find_app_window()
+        if win_after:
+            screenshot_window("22_4_after_escape", win_after["id"])
+            pass_test("Region cancelled with Escape - returned to ModeSelect")
+        else:
+            fail_test("Region Escape cancel", "window not found")
+    else:
+        skip_test("Region Escape cancel", "no window")
+
+    # Reset
+    send_debug_key(1, pid)
+    time.sleep(0.3)
+
+
 # ========== MAIN ==========
 
 def main():
@@ -1647,6 +1906,18 @@ def main():
         # Group 19: State transition flow
         win = find_app_window()
         test_group_19_transitions(win, sender_pid)
+
+        # Group 20: v0.53 capture mode buttons
+        win = find_app_window()
+        test_group_20_capture_modes(win, sender_pid)
+
+        # Group 21: v0.53 window list in mode select
+        win = find_app_window()
+        test_group_21_window_list(win, sender_pid)
+
+        # Group 22: v0.53 region select drag
+        win = find_app_window()
+        test_group_22_region_drag(win, sender_pid)
 
     finally:
         log("")

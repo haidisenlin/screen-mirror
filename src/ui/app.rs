@@ -364,6 +364,25 @@ impl AppCore {
                                 pin: self.idle_view.pin_input.clone(),
                             };
                         }
+                        egui::Key::Num0 => {
+                            self.window_list = vec![
+                                WindowInfo {
+                                    id: 1001,
+                                    title: "Google Chrome".to_string(),
+                                    app_name: "Chrome".to_string(),
+                                },
+                                WindowInfo {
+                                    id: 1002,
+                                    title: "终端".to_string(),
+                                    app_name: "Terminal".to_string(),
+                                },
+                                WindowInfo {
+                                    id: 1003,
+                                    title: "代码编辑器".to_string(),
+                                    app_name: "RustRover".to_string(),
+                                },
+                            ];
+                        }
                         _ => {}
                     }
                 }
