@@ -3,7 +3,7 @@ use std::ptr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 use crate::transport::jitter::AudioJitterBuffer;
 
@@ -143,8 +143,9 @@ unsafe extern "C" fn render_callback(
     if state.residual_offset < state.residual.len() {
         let avail = state.residual.len() - state.residual_offset;
         let to_copy = avail.min(needed_samples - written);
-        out_slice[written..written + to_copy]
-            .copy_from_slice(&state.residual[state.residual_offset..state.residual_offset + to_copy]);
+        out_slice[written..written + to_copy].copy_from_slice(
+            &state.residual[state.residual_offset..state.residual_offset + to_copy],
+        );
         state.residual_offset += to_copy;
         written += to_copy;
     }
@@ -172,12 +173,13 @@ unsafe extern "C" fn render_callback(
                 .copy_from_slice(&state.frame_buf[..JITTER_FRAME_SAMPLES]);
             written += JITTER_FRAME_SAMPLES;
         } else {
-            out_slice[written..written + remaining]
-                .copy_from_slice(&state.frame_buf[..remaining]);
+            out_slice[written..written + remaining].copy_from_slice(&state.frame_buf[..remaining]);
             written += remaining;
             // Store leftover in residual.
             state.residual.clear();
-            state.residual.extend_from_slice(&state.frame_buf[remaining..JITTER_FRAME_SAMPLES]);
+            state
+                .residual
+                .extend_from_slice(&state.frame_buf[remaining..JITTER_FRAME_SAMPLES]);
             state.residual_offset = 0;
         }
     }

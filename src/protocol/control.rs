@@ -55,7 +55,9 @@ mod tests {
 
     #[test]
     fn bitrate_adjust_roundtrip() {
-        let msg = ControlMessage::BitrateAdjust { bitrate: 15_000_000 };
+        let msg = ControlMessage::BitrateAdjust {
+            bitrate: 15_000_000,
+        };
         let bytes = msg.to_bytes();
         let parsed = ControlMessage::from_bytes(&bytes).unwrap();
         assert_eq!(parsed, msg);

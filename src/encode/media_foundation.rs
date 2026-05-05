@@ -2,14 +2,14 @@ use std::sync::mpsc::{self, Receiver, SyncSender};
 
 use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
 use windows::Win32::Media::MediaFoundation::{
-    IMFMediaBuffer, IMFMediaType, IMFSample, IMFTransform, MFCreateDXGISurfaceBuffer,
-    MFCreateMediaType, MFCreateMemoryBuffer, MFCreateSample, MFStartup, MFTEnumEx,
-    MFMediaType_Video, MFVideoFormat_H264, MFVideoFormat_NV12, MFT_CATEGORY_VIDEO_ENCODER,
-    MFT_ENUM_FLAG_HARDWARE, MFT_ENUM_FLAG_SORTANDFILTER, MFT_REGISTER_TYPE_INFO,
-    MF_MT_AVG_BITRATE, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE,
-    MF_MT_MAJOR_TYPE, MF_MT_SUBTYPE,
+    IMFMediaBuffer, IMFMediaType, IMFSample, IMFTransform, MF_MT_AVG_BITRATE, MF_MT_FRAME_RATE,
+    MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE, MF_MT_SUBTYPE,
+    MFCreateDXGISurfaceBuffer, MFCreateMediaType, MFCreateMemoryBuffer, MFCreateSample,
+    MFMediaType_Video, MFStartup, MFT_CATEGORY_VIDEO_ENCODER, MFT_ENUM_FLAG_HARDWARE,
+    MFT_ENUM_FLAG_SORTANDFILTER, MFT_REGISTER_TYPE_INFO, MFTEnumEx, MFVideoFormat_H264,
+    MFVideoFormat_NV12,
 };
-use windows::Win32::System::Com::{CoInitializeEx, CoTaskMemFree, COINIT_MULTITHREADED};
+use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoTaskMemFree};
 use windows::core::Interface;
 
 use super::{EncodedPacket, EncoderConfig};
@@ -78,10 +78,7 @@ impl MfEncoder {
                 &MF_MT_FRAME_SIZE,
                 ((config.width as u64) << 32) | config.height as u64,
             )?;
-            output_media_type.SetUINT64(
-                &MF_MT_FRAME_RATE,
-                ((config.fps as u64) << 32) | 1,
-            )?;
+            output_media_type.SetUINT64(&MF_MT_FRAME_RATE, ((config.fps as u64) << 32) | 1)?;
             output_media_type.SetUINT32(&MF_MT_AVG_BITRATE, config.bitrate)?;
             output_media_type.SetUINT32(&MF_MT_INTERLACE_MODE, 2)?; // Progressive
 
@@ -95,10 +92,7 @@ impl MfEncoder {
                 &MF_MT_FRAME_SIZE,
                 ((config.width as u64) << 32) | config.height as u64,
             )?;
-            input_media_type.SetUINT64(
-                &MF_MT_FRAME_RATE,
-                ((config.fps as u64) << 32) | 1,
-            )?;
+            input_media_type.SetUINT64(&MF_MT_FRAME_RATE, ((config.fps as u64) << 32) | 1)?;
 
             transform.SetInputType(0, &input_media_type, 0)?;
 
@@ -115,14 +109,25 @@ impl MfEncoder {
 
             tracing::info!(
                 "Media Foundation: HW H.264 encoder initialized {}x{}",
-                config.width, config.height
+                config.width,
+                config.height
             );
 
-            Ok(Self { transform, tx, rx, width: config.width, height: config.height })
+            Ok(Self {
+                transform,
+                tx,
+                rx,
+                width: config.width,
+                height: config.height,
+            })
         }
     }
 
-    pub fn encode_nv12(&mut self, nv12_texture: &ID3D11Texture2D, timestamp_ns: u64) -> anyhow::Result<()> {
+    pub fn encode_nv12(
+        &mut self,
+        nv12_texture: &ID3D11Texture2D,
+        timestamp_ns: u64,
+    ) -> anyhow::Result<()> {
         unsafe {
             let buffer: IMFMediaBuffer = MFCreateDXGISurfaceBuffer(
                 &ID3D11Texture2D::IID,
@@ -152,7 +157,9 @@ impl MfEncoder {
             output_buffer.pSample = std::mem::ManuallyDrop::new(Some(output_sample));
 
             let mut status = 0u32;
-            let hr = self.transform.ProcessOutput(0, &mut [output_buffer], &mut status);
+            let hr = self
+                .transform
+                .ProcessOutput(0, &mut [output_buffer], &mut status);
 
             if hr.is_err() {
                 let _ = std::mem::ManuallyDrop::into_inner(output_buffer.pSample);
@@ -165,13 +172,13 @@ impl MfEncoder {
                 let mut length = 0u32;
                 buf.Lock(&mut ptr, None, Some(&mut length))?;
 
-                let data =
-                    std::slice::from_raw_parts(ptr as *const u8, length as usize).to_vec();
+                let data = std::slice::from_raw_parts(ptr as *const u8, length as usize).to_vec();
                 buf.Unlock()?;
 
                 let nal_units = parse_annex_b_nals(&data);
-                let is_keyframe =
-                    nal_units.iter().any(|n| !n.is_empty() && (n[0] & 0x1F) == 5);
+                let is_keyframe = nal_units
+                    .iter()
+                    .any(|n| !n.is_empty() && (n[0] & 0x1F) == 5);
 
                 let packet = EncodedPacket {
                     data,

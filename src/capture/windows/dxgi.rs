@@ -4,17 +4,17 @@ use std::time::Duration;
 
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
-    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_CPU_ACCESS_READ, D3D11_MAPPED_SUBRESOURCE,
-    D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING,
+    D3D11_CPU_ACCESS_READ, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAPPED_SUBRESOURCE,
+    D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING, D3D11CreateDevice, ID3D11Device,
+    ID3D11DeviceContext, ID3D11Texture2D,
 };
 use windows::Win32::Graphics::Dxgi::{
-    CreateDXGIFactory1, IDXGIFactory1, IDXGIOutput1, IDXGIOutputDuplication,
-    DXGI_OUTDUPL_FRAME_INFO,
+    CreateDXGIFactory1, DXGI_OUTDUPL_FRAME_INFO, IDXGIFactory1, IDXGIOutput1,
+    IDXGIOutputDuplication,
 };
 use windows::core::Interface;
 
-use crate::capture::{CaptureConfig, CapturedFrame, NativeFrame, VideoCapture};
+use crate::capture::{CaptureConfig, CaptureError, CapturedFrame, NativeFrame, VideoCapture};
 
 struct DxgiState {
     device: ID3D11Device,
@@ -51,7 +51,12 @@ impl VideoCapture for DxgiCapture {
             .name("dxgi-capture".into())
             .spawn(move || capture_loop(state, tx, fps))?;
 
-        Ok(Self { rx, width, height, device })
+        Ok(Self {
+            rx,
+            width,
+            height,
+            device,
+        })
     }
 
     fn width(&self) -> u32 {
@@ -62,8 +67,11 @@ impl VideoCapture for DxgiCapture {
         self.height
     }
 
-    fn next_frame(&self) -> Option<CapturedFrame> {
-        self.rx.recv().ok()
+    fn next_frame(&self) -> Result<Option<CapturedFrame>, CaptureError> {
+        match self.rx.recv() {
+            Ok(frame) => Ok(Some(frame)),
+            Err(_) => Ok(None),
+        }
     }
 }
 
@@ -107,7 +115,13 @@ fn init_dxgi() -> anyhow::Result<DxgiState> {
 
         tracing::info!("DXGI: initialized {width}x{height}");
 
-        Ok(DxgiState { device, context, duplication, width, height })
+        Ok(DxgiState {
+            device,
+            context,
+            duplication,
+            width,
+            height,
+        })
     }
 }
 
@@ -177,7 +191,9 @@ fn capture_loop(state: DxgiState, tx: SyncSender<CapturedFrame>, fps: u32) {
             desc.MiscFlags = windows::Win32::Graphics::Direct3D11::D3D11_RESOURCE_MISC_FLAG(0);
 
             let mut copy_texture = None;
-            let hr = state.device.CreateTexture2D(&desc, None, Some(&mut copy_texture));
+            let hr = state
+                .device
+                .CreateTexture2D(&desc, None, Some(&mut copy_texture));
             if hr.is_err() {
                 let _ = state.duplication.ReleaseFrame();
                 continue;
@@ -189,10 +205,16 @@ fn capture_loop(state: DxgiState, tx: SyncSender<CapturedFrame>, fps: u32) {
 
             if cursor_visible && !cursor_shape.is_empty() && cursor_width > 0 {
                 composite_cursor_onto_texture(
-                    &state.device, &state.context, &copy_tex,
-                    &cursor_shape, cursor_x, cursor_y,
-                    cursor_width, cursor_height,
-                    desc.Width, desc.Height,
+                    &state.device,
+                    &state.context,
+                    &copy_tex,
+                    &cursor_shape,
+                    cursor_x,
+                    cursor_y,
+                    cursor_width,
+                    cursor_height,
+                    desc.Width,
+                    desc.Height,
                 );
             }
 
@@ -216,9 +238,12 @@ unsafe fn composite_cursor_onto_texture(
     context: &ID3D11DeviceContext,
     target: &ID3D11Texture2D,
     cursor_data: &[u8],
-    cx: i32, cy: i32,
-    cw: u32, ch: u32,
-    frame_w: u32, frame_h: u32,
+    cx: i32,
+    cy: i32,
+    cw: u32,
+    ch: u32,
+    frame_w: u32,
+    frame_h: u32,
 ) {
     if cx >= frame_w as i32 || cy >= frame_h as i32 || cx + cw as i32 <= 0 || cy + ch as i32 <= 0 {
         return;
@@ -228,18 +253,30 @@ unsafe fn composite_cursor_onto_texture(
     target.GetDesc(&mut desc);
     desc.Usage = D3D11_USAGE_STAGING;
     desc.BindFlags = windows::Win32::Graphics::Direct3D11::D3D11_BIND_FLAG(0);
-    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ
-        | windows::Win32::Graphics::Direct3D11::D3D11_CPU_ACCESS_WRITE;
+    desc.CPUAccessFlags =
+        D3D11_CPU_ACCESS_READ | windows::Win32::Graphics::Direct3D11::D3D11_CPU_ACCESS_WRITE;
 
     let mut staging = None;
-    if device.CreateTexture2D(&desc, None, Some(&mut staging)).is_err() {
+    if device
+        .CreateTexture2D(&desc, None, Some(&mut staging))
+        .is_err()
+    {
         return;
     }
     let staging = staging.unwrap();
     context.CopyResource(&staging, target);
 
     let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
-    if context.Map(&staging, 0, windows::Win32::Graphics::Direct3D11::D3D11_MAP_READ_WRITE, 0, Some(&mut mapped)).is_err() {
+    if context
+        .Map(
+            &staging,
+            0,
+            windows::Win32::Graphics::Direct3D11::D3D11_MAP_READ_WRITE,
+            0,
+            Some(&mut mapped),
+        )
+        .is_err()
+    {
         return;
     }
 
@@ -248,17 +285,26 @@ unsafe fn composite_cursor_onto_texture(
 
     for row in 0..ch {
         let dy = cy + row as i32;
-        if dy < 0 || dy >= frame_h as i32 { continue; }
+        if dy < 0 || dy >= frame_h as i32 {
+            continue;
+        }
         for col in 0..cw {
             let dx = cx + col as i32;
-            if dx < 0 || dx >= frame_w as i32 { continue; }
+            if dx < 0 || dx >= frame_w as i32 {
+                continue;
+            }
             let src_offset = (row * cw + col) as usize * 4;
-            if src_offset + 3 >= cursor_data.len() { break; }
+            if src_offset + 3 >= cursor_data.len() {
+                break;
+            }
             let alpha = cursor_data[src_offset + 3] as u32;
-            if alpha == 0 { continue; }
+            if alpha == 0 {
+                continue;
+            }
             let dst_offset = dy as usize * row_pitch + dx as usize * 4;
             if alpha == 255 {
-                dst[dst_offset..dst_offset + 4].copy_from_slice(&cursor_data[src_offset..src_offset + 4]);
+                dst[dst_offset..dst_offset + 4]
+                    .copy_from_slice(&cursor_data[src_offset..src_offset + 4]);
             } else {
                 let inv = 255 - alpha;
                 for c in 0..3 {

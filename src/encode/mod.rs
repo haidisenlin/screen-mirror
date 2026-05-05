@@ -1,15 +1,15 @@
 // src/encode/mod.rs
 
-#[cfg(target_os = "macos")]
-pub mod videotoolbox;
 #[cfg(target_os = "windows")]
-pub mod nvenc;
+pub mod convert;
 #[cfg(target_os = "windows")]
 pub mod media_foundation;
 #[cfg(target_os = "windows")]
-pub mod software;
+pub mod nvenc;
 #[cfg(target_os = "windows")]
-pub mod convert;
+pub mod software;
+#[cfg(target_os = "macos")]
+pub mod videotoolbox;
 
 use crate::capture::CapturedFrame;
 #[cfg(target_os = "windows")]
@@ -54,7 +54,9 @@ impl VideoEncoder {
         }
         #[cfg(target_os = "windows")]
         {
-            anyhow::bail!("on Windows, use VideoEncoder::new_with_device() to provide the D3D11 device")
+            anyhow::bail!(
+                "on Windows, use VideoEncoder::new_with_device() to provide the D3D11 device"
+            )
         }
     }
 
@@ -76,7 +78,9 @@ impl VideoEncoder {
 
             match &mut self.inner {
                 WindowsEncoder::Nvenc(enc) => enc.encode_nv12(nv12_texture, frame.timestamp_ns),
-                WindowsEncoder::MediaFoundation(enc) => enc.encode_nv12(nv12_texture, frame.timestamp_ns),
+                WindowsEncoder::MediaFoundation(enc) => {
+                    enc.encode_nv12(nv12_texture, frame.timestamp_ns)
+                }
                 WindowsEncoder::Software(enc) => enc.encode_nv12(nv12_texture, frame.timestamp_ns),
             }
         }
@@ -98,7 +102,10 @@ impl VideoEncoder {
     }
 
     #[cfg(target_os = "windows")]
-    fn probe_windows_encoder(config: &EncoderConfig, device: &ID3D11Device) -> anyhow::Result<Self> {
+    fn probe_windows_encoder(
+        config: &EncoderConfig,
+        device: &ID3D11Device,
+    ) -> anyhow::Result<Self> {
         let converter = convert::BgraToNv12Converter::new(device, config.width, config.height)?;
 
         let inner = if let Ok(enc) = nvenc::NvencEncoder::new(config) {

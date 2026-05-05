@@ -397,7 +397,10 @@ impl VTDecoder {
             )
         };
         if status != 0 {
-            anyhow::bail!("CMVideoFormatDescriptionCreateFromH264ParameterSets failed: {}", status);
+            anyhow::bail!(
+                "CMVideoFormatDescriptionCreateFromH264ParameterSets failed: {}",
+                status
+            );
         }
         self.fmt_desc = fmt_desc;
 
@@ -485,11 +488,11 @@ impl VTDecoder {
                 kCFAllocatorDefault,
                 avcc_buf.as_mut_ptr() as *mut c_void,
                 avcc_len,
-                kCFAllocatorNull,  // don't deallocate — we own the memory
-                std::ptr::null(),  // custom block source
-                0,                 // offset to data
-                avcc_len,          // data length
-                0,                 // flags
+                kCFAllocatorNull, // don't deallocate — we own the memory
+                std::ptr::null(), // custom block source
+                0,                // offset to data
+                avcc_len,         // data length
+                0,                // flags
                 &mut block_buf,
             )
         };
@@ -511,11 +514,11 @@ impl VTDecoder {
                 kCFAllocatorDefault,
                 block_buf,
                 self.fmt_desc,
-                1,          // num_samples
-                1,          // num_sample_timing_entries
+                1, // num_samples
+                1, // num_sample_timing_entries
                 &timing,
-                1,          // num_sample_size_entries
-                &avcc_len,  // sample size
+                1,         // num_sample_size_entries
+                &avcc_len, // sample size
                 &mut sbuf,
             )
         };

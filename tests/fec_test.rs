@@ -57,9 +57,7 @@ fn test_fec_recovers_single_lost_packet() {
 #[test]
 fn test_fec_cannot_recover_two_lost_packets() {
     let mut enc = FecEncoder::new(4, 96);
-    let packets: Vec<RtpPacket> = (0..4u16)
-        .map(|i| make_rtp(i, 96, &[i as u8; 50]))
-        .collect();
+    let packets: Vec<RtpPacket> = (0..4u16).map(|i| make_rtp(i, 96, &[i as u8; 50])).collect();
 
     let mut fec_pkt = None;
     for pkt in &packets {

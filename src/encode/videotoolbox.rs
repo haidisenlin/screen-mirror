@@ -310,10 +310,8 @@ unsafe fn extract_encoded_packet(sbuf: CMSampleBufferRef) -> Option<EncodedPacke
             true // no attachments → sync frame (keyframe)
         } else {
             let dict = CFArrayGetValueAtIndex(attachments, 0) as CFDictionaryRef;
-            let not_sync = CFDictionaryGetValue(
-                dict,
-                kCMSampleAttachmentKey_NotSync as *const c_void,
-            );
+            let not_sync =
+                CFDictionaryGetValue(dict, kCMSampleAttachmentKey_NotSync as *const c_void);
             if not_sync.is_null() {
                 true // key absent → sync frame
             } else {
@@ -531,7 +529,7 @@ impl VTEncoder {
                 pixel_buffer as CVImageBufferRef,
                 pts,
                 dur,
-                std::ptr::null_mut(), // frame properties
+                std::ptr::null_mut(),              // frame properties
                 timestamp as usize as *mut c_void, // pass timestamp through refcon
                 &mut flags,
             )

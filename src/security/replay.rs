@@ -67,8 +67,8 @@ impl ReplayWindow {
 
         if bit_shift > 0 {
             for i in (1..BITMAP_WORDS).rev() {
-                self.bitmap[i] = (self.bitmap[i] << bit_shift)
-                    | (self.bitmap[i - 1] >> (64 - bit_shift));
+                self.bitmap[i] =
+                    (self.bitmap[i] << bit_shift) | (self.bitmap[i - 1] >> (64 - bit_shift));
             }
             self.bitmap[0] <<= bit_shift;
         }

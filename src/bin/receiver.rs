@@ -1,6 +1,7 @@
 use std::io::{Read as IoRead, Write as IoWrite};
 use std::net::UdpSocket;
 use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -10,11 +11,11 @@ use winit::event::WindowEvent;
 use winit::event_loop::EventLoop;
 use winit::window::Window;
 
+use screen_mirror::audio::AudioConfig;
 use screen_mirror::audio::opus_decoder::OpusDecoder;
 use screen_mirror::audio::output::AudioOutput;
-use screen_mirror::audio::AudioConfig;
-use screen_mirror::decode::videotoolbox::VTDecoder;
 use screen_mirror::decode::DecoderConfig;
+use screen_mirror::decode::videotoolbox::VTDecoder;
 use screen_mirror::discovery::advertiser::Advertiser;
 use screen_mirror::protocol::negotiate::*;
 use screen_mirror::protocol::session::SecureChannel;
@@ -229,14 +230,16 @@ impl ApplicationHandler for App {
                 self.poll_packets();
 
                 if let Some(ref audio_output) = self.audio_output {
-                    self.sync_state.report_audio_played(audio_output.samples_played());
+                    self.sync_state
+                        .report_audio_played(audio_output.samples_played());
                 }
 
                 if let Some(frame) = self.decoder.next_frame() {
                     if let Some(renderer) = &mut self.renderer {
                         let _ = unsafe { renderer.render_pixel_buffer(frame.pixel_buffer) };
                         self.frames_rendered += 1;
-                        self.sync_state.report_video_rendered(frame.timestamp as u32);
+                        self.sync_state
+                            .report_video_rendered(frame.timestamp as u32);
                         if self.frames_rendered.is_multiple_of(60) {
                             tracing::info!("rendered {} frames", self.frames_rendered);
                         }
@@ -258,6 +261,48 @@ impl ApplicationHandler for App {
     }
 }
 
+fn spawn_verify_pin_server(
+    pin: Arc<Mutex<String>>,
+    device_name: String,
+) -> (u16, thread::JoinHandle<()>) {
+    let server = tiny_http::Server::http("0.0.0.0:0").expect("failed to bind HTTP server");
+    let port = server.server_addr().to_ip().unwrap().port();
+    let handle = thread::spawn(move || {
+        for mut request in server.incoming_requests() {
+            if request.method() != &tiny_http::Method::Post || request.url() != "/verify-pin" {
+                let resp = tiny_http::Response::from_string("{}").with_status_code(404);
+                let _ = request.respond(resp);
+                continue;
+            }
+            let mut body = String::new();
+            if request.as_reader().read_to_string(&mut body).is_err() {
+                let resp = tiny_http::Response::from_string("{}").with_status_code(400);
+                let _ = request.respond(resp);
+                continue;
+            }
+            let received_pin = serde_json::from_str::<serde_json::Value>(&body)
+                .ok()
+                .and_then(|v| v["pin"].as_str().map(|s| s.to_string()));
+            let current_pin = pin.lock().unwrap().clone();
+            if received_pin.as_deref() == Some(current_pin.as_str()) {
+                let json = serde_json::json!({ "device_name": device_name });
+                let resp = tiny_http::Response::from_string(json.to_string())
+                    .with_header(
+                        "Content-Type: application/json"
+                            .parse::<tiny_http::Header>()
+                            .unwrap(),
+                    )
+                    .with_status_code(200);
+                let _ = request.respond(resp);
+            } else {
+                let resp = tiny_http::Response::from_string("{}").with_status_code(403);
+                let _ = request.respond(resp);
+            }
+        }
+    });
+    (port, handle)
+}
+
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
@@ -268,11 +313,17 @@ fn main() -> Result<()> {
         .to_string_lossy()
         .to_string();
 
-    let (advertiser, listener) = Advertiser::new(&device_name)?;
+    // Spawn HTTP verify-pin server
+    let pin = pairing::generate_pin();
+    let shared_pin = Arc::new(Mutex::new(pin.clone()));
+    let (http_port, _http_handle) =
+        spawn_verify_pin_server(shared_pin.clone(), device_name.clone());
+    tracing::info!("HTTP verify-pin server on port {http_port}");
+
+    let (advertiser, listener) = Advertiser::new(&device_name, http_port)?;
 
     // Loop until we successfully pair and negotiate
     let (media_cipher, params, udp_socket) = loop {
-        let pin = pairing::generate_pin();
         tracing::info!("========================================");
         tracing::info!("  PIN: {pin}");
         tracing::info!("========================================");
@@ -306,7 +357,9 @@ fn main() -> Result<()> {
         }
 
         let (msg_b, state) = pairing::receiver_start(&pin);
-        if tcp_stream.write_all(&(msg_b.len() as u32).to_be_bytes()).is_err()
+        if tcp_stream
+            .write_all(&(msg_b.len() as u32).to_be_bytes())
+            .is_err()
             || tcp_stream.write_all(&msg_b).is_err()
         {
             tracing::warn!("failed to send pairing response, restarting");
@@ -367,16 +420,26 @@ fn main() -> Result<()> {
                 sample_rate: 48000,
                 channels: 2,
             },
-            transport: AnswerTransport { udp_port: receiver_udp_port },
+            transport: AnswerTransport {
+                udp_port: receiver_udp_port,
+            },
         };
-        if channel.send(&NegotiateMessage::Answer(answer.clone()).to_bytes()).is_err() {
+        if channel
+            .send(&NegotiateMessage::Answer(answer.clone()).to_bytes())
+            .is_err()
+        {
             tracing::warn!("failed to send answer, restarting");
             let _ = advertiser.reregister(&device_name);
             continue;
         }
 
         let params = NegotiatedParams::resolve(&offer, &answer);
-        tracing::info!("negotiated: {}x{} @ {}fps", params.video_width, params.video_height, params.video_fps);
+        tracing::info!(
+            "negotiated: {}x{} @ {}fps",
+            params.video_width,
+            params.video_height,
+            params.video_fps
+        );
         channel.set_read_timeout(None)?;
 
         let media_cipher = Cipher::new(&keys.media_key, [0, 0, 0, 1]);

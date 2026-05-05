@@ -32,7 +32,11 @@ impl NvencEncoder {
         }
     }
 
-    pub fn encode_nv12(&mut self, _nv12_texture: &ID3D11Texture2D, _timestamp_ns: u64) -> anyhow::Result<()> {
+    pub fn encode_nv12(
+        &mut self,
+        _nv12_texture: &ID3D11Texture2D,
+        _timestamp_ns: u64,
+    ) -> anyhow::Result<()> {
         anyhow::bail!("NVENC not initialized")
     }
 

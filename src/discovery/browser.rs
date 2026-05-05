@@ -10,6 +10,7 @@ use super::SERVICE_TYPE;
 pub struct DiscoveredReceiver {
     pub name: String,
     pub addr: SocketAddr,
+    pub http_port: Option<u16>,
 }
 
 pub fn browse(timeout: Duration) -> Result<Vec<DiscoveredReceiver>> {
@@ -38,10 +39,15 @@ pub fn browse(timeout: Duration) -> Result<Vec<DiscoveredReceiver>> {
                     name
                 };
 
+                let http_port = info
+                    .get_property_val_str("http_port")
+                    .and_then(|v| v.parse::<u16>().ok());
+
                 for addr in info.get_addresses_v4() {
                     results.push(DiscoveredReceiver {
                         name: display_name.clone(),
                         addr: SocketAddr::new(IpAddr::V4(*addr), port),
+                        http_port,
                     });
                 }
             }

@@ -15,9 +15,7 @@ impl RtpHeader {
 
     pub fn serialize(&self) -> [u8; 12] {
         let mut buf = [0u8; 12];
-        buf[0] = (self.version << 6)
-            | ((self.padding as u8) << 5)
-            | ((self.extension as u8) << 4);
+        buf[0] = (self.version << 6) | ((self.padding as u8) << 5) | ((self.extension as u8) << 4);
         buf[1] = ((self.marker as u8) << 7) | (self.payload_type & 0x7F);
         buf[2..4].copy_from_slice(&self.sequence_number.to_be_bytes());
         buf[4..8].copy_from_slice(&self.timestamp.to_be_bytes());

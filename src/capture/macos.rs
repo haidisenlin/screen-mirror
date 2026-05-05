@@ -8,7 +8,36 @@ use screencapturekit::prelude::{
     SCStreamOutputType,
 };
 
-use super::{CaptureConfig, CapturedFrame, NativeFrame, VideoCapture};
+use screencapturekit::cg::CGRect;
+
+use super::{CaptureConfig, CaptureError, CapturedFrame, NativeFrame, VideoCapture};
+use crate::ui::messages::{CaptureMode, WindowInfo};
+
+pub fn list_windows_macos() -> Vec<WindowInfo> {
+    let Ok(content) = SCShareableContent::get() else {
+        return vec![];
+    };
+    content
+        .windows()
+        .into_iter()
+        .filter(|w| w.is_on_screen() && w.window_layer() == 0)
+        .filter_map(|w| {
+            let title = w.title().unwrap_or_default();
+            let app_name = w
+                .owning_application()
+                .map(|a| a.application_name())
+                .unwrap_or_default();
+            if title.is_empty() && app_name.is_empty() {
+                return None;
+            }
+            Some(WindowInfo {
+                id: w.window_id() as u64,
+                title,
+                app_name,
+            })
+        })
+        .collect()
+}
 
 type CGDisplayModeRef = *mut std::ffi::c_void;
 
@@ -76,30 +105,63 @@ impl VideoCapture for MacOsCapture {
             .next()
             .ok_or_else(|| anyhow::anyhow!("no display found"))?;
 
-        let (cap_w, cap_h) = if config.width == 0 || config.height == 0 {
-            let display_id = display.display_id();
-            physical_display_size(display_id)
-                .or_else(|| {
-                    let fallback_id = unsafe { CGMainDisplayID() };
-                    physical_display_size(fallback_id)
-                })
-                .unwrap_or((1920, 1080))
-        } else {
-            (config.width, config.height)
+        let filter = match &config.mode {
+            CaptureMode::FullScreen => SCContentFilter::create()
+                .with_display(&display)
+                .with_excluding_windows(&[])
+                .build(),
+            CaptureMode::Window { id, .. } => {
+                let window = content
+                    .windows()
+                    .into_iter()
+                    .find(|w| w.window_id() as u64 == *id)
+                    .ok_or_else(|| anyhow::anyhow!("window not found: {id}"))?;
+                SCContentFilter::create().with_window(&window).build()
+            }
+            CaptureMode::Region { .. } => SCContentFilter::create()
+                .with_display(&display)
+                .with_excluding_windows(&[])
+                .build(),
         };
 
-        let filter = SCContentFilter::create()
-            .with_display(&display)
-            .with_excluding_windows(&[])
-            .build();
+        let (cap_w, cap_h) = match &config.mode {
+            CaptureMode::Region { width, height, .. } => (*width as u32, *height as u32),
+            _ => {
+                if config.width == 0 || config.height == 0 {
+                    let display_id = display.display_id();
+                    physical_display_size(display_id)
+                        .or_else(|| {
+                            let fallback_id = unsafe { CGMainDisplayID() };
+                            physical_display_size(fallback_id)
+                        })
+                        .unwrap_or((1920, 1080))
+                } else {
+                    (config.width, config.height)
+                }
+            }
+        };
 
-        let sc_config = SCStreamConfiguration::new()
+        let mut sc_config = SCStreamConfiguration::new()
             .with_width(cap_w)
             .with_height(cap_h)
             .with_fps(config.fps)
             .with_captures_audio(true)
             .with_sample_rate(48000)
             .with_channel_count(2);
+
+        if let CaptureMode::Region {
+            x,
+            y,
+            width,
+            height,
+        } = &config.mode
+        {
+            sc_config = sc_config.with_source_rect(CGRect::new(*x, *y, *width, *height));
+        }
+
+        if matches!(&config.mode, CaptureMode::Window { .. }) {
+            sc_config = sc_config.with_ignores_shadows_single_window(true);
+        }
 
         let (video_tx, video_rx) = mpsc::sync_channel(2);
         let (audio_tx, audio_rx) = mpsc::sync_channel(8);
@@ -130,19 +192,23 @@ impl VideoCapture for MacOsCapture {
         self.height
     }
 
-    fn next_frame(&self) -> Option<CapturedFrame> {
-        loop {
-            let sample = self.video_rx.recv().ok()?;
-            let pixel_buffer = sample.image_buffer()?;
-            let timestamp_ns = sample.display_time().unwrap_or_else(|| {
-                let t = sample.presentation_timestamp();
-                (t.value as u64 * 1_000_000_000) / t.timescale as u64
-            });
-            return Some(CapturedFrame {
-                native: pixel_buffer.as_ptr() as NativeFrame,
-                timestamp_ns,
-            });
-        }
+    fn next_frame(&self) -> Result<Option<CapturedFrame>, CaptureError> {
+        let sample = match self.video_rx.recv() {
+            Ok(s) => s,
+            Err(_) => return Ok(None),
+        };
+        let pixel_buffer = match sample.image_buffer() {
+            Some(buf) => buf,
+            None => return Ok(None),
+        };
+        let timestamp_ns = sample.display_time().unwrap_or_else(|| {
+            let t = sample.presentation_timestamp();
+            cmtime_to_nanos(t.value as u64, t.timescale as u64)
+        });
+        Ok(Some(CapturedFrame {
+            native: pixel_buffer.as_ptr() as NativeFrame,
+            timestamp_ns,
+        }))
     }
 }
 
@@ -150,6 +216,14 @@ impl MacOsCapture {
     pub fn try_next_audio(&self) -> Option<Vec<f32>> {
         let sample = self.audio_rx.try_recv().ok()?;
         extract_audio_pcm(&sample)
+    }
+}
+
+fn cmtime_to_nanos(value: u64, timescale: u64) -> u64 {
+    if timescale == 0 {
+        0
+    } else {
+        (value * 1_000_000_000) / timescale
     }
 }
 
@@ -165,4 +239,24 @@ fn extract_audio_pcm(sample: &CMSampleBuffer) -> Option<Vec<f32>> {
         }
     }
     if pcm.is_empty() { None } else { Some(pcm) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cmtime_to_nanos_zero_timescale_returns_zero() {
+        assert_eq!(cmtime_to_nanos(12345, 0), 0);
+    }
+
+    #[test]
+    fn cmtime_to_nanos_normal_conversion() {
+        // 1 second at timescale 1000 = 1_000_000_000 ns
+        assert_eq!(cmtime_to_nanos(1000, 1000), 1_000_000_000);
+        // 48000 samples at 48kHz = 1 second
+        assert_eq!(cmtime_to_nanos(48000, 48000), 1_000_000_000);
+        // Half a second at timescale 600
+        assert_eq!(cmtime_to_nanos(300, 600), 500_000_000);
+    }
 }
