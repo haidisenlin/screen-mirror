@@ -4,12 +4,13 @@ use std::time::{Duration, Instant};
 use eframe::egui::{self, ViewportCommand};
 
 use crate::ui::anim::AiBackground;
-use crate::ui::messages::{BackendEvent, StreamStats, UiCommand, WindowInfo};
+use crate::ui::messages::{BackendEvent, CaptureMode, StreamStats, UiCommand, WindowInfo};
 use crate::ui::theme::{PANEL_MAX_HEIGHT, PANEL_WIDTH};
 use crate::ui::tray::{AppTray, TrayState};
 use crate::ui::views::idle::{IdleAction, IdleViewState, PinVerifyState};
 use crate::ui::views::mode::ModeAction;
 use crate::ui::views::paused::PausedAction;
+use crate::ui::views::region_select::{RegionAction, RegionSelectView};
 use crate::ui::views::streaming::StreamingAction;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -46,6 +47,8 @@ struct AppCore {
     event_rx: mpsc::Receiver<BackendEvent>,
     window_list: Vec<WindowInfo>,
     session_gen: u64,
+    region_select: Option<RegionSelectView>,
+    is_fullscreen: bool,
 }
 
 impl AppCore {
@@ -68,6 +71,8 @@ impl AppCore {
             event_rx,
             window_list: Vec::new(),
             session_gen: 0,
+            region_select: None,
+            is_fullscreen: false,
         }
     }
 
@@ -317,8 +322,10 @@ impl AppCore {
     }
 
     fn render_ui(&mut self, ui: &mut egui::Ui) {
-        ui.set_min_width(PANEL_WIDTH);
-        ui.set_max_width(PANEL_WIDTH);
+        if !matches!(self.state, AppState::RegionSelect { .. }) {
+            ui.set_min_width(PANEL_WIDTH);
+            ui.set_max_width(PANEL_WIDTH);
+        }
 
         match &mut self.state {
             AppState::Idle | AppState::Connecting { .. } => {
@@ -355,15 +362,47 @@ impl AppCore {
                         let _ = self.cmd_tx.send(UiCommand::ListWindows);
                     }
                     ModeAction::StartRegionSelect => {
-                        // Will be fully wired in Task 9
+                        use crate::capture::screenshot::take_screenshot;
+                        let device_name = device_name.clone();
+                        match take_screenshot() {
+                            Ok(shot) => {
+                                self.region_select = Some(RegionSelectView::new(
+                                    shot.rgba,
+                                    shot.width,
+                                    shot.height,
+                                ));
+                                self.state = AppState::RegionSelect { device_name };
+                            }
+                            Err(e) => {
+                                tracing::error!("screenshot failed: {e}");
+                            }
+                        }
                     }
                     ModeAction::None => {}
                 }
             }
             AppState::RegionSelect { device_name } => {
                 let device_name = device_name.clone();
-                // For now, Escape returns to ModeSelect
-                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                if let Some(view) = &mut self.region_select {
+                    let action = view.render(ui);
+                    match action {
+                        RegionAction::Confirmed(region) => {
+                            let mode = CaptureMode::Region {
+                                x: region.x,
+                                y: region.y,
+                                width: region.width,
+                                height: region.height,
+                            };
+                            let _ = self.cmd_tx.send(UiCommand::StartStreaming { mode });
+                            self.region_select = None;
+                        }
+                        RegionAction::Cancelled => {
+                            self.region_select = None;
+                            self.state = AppState::ModeSelect { device_name };
+                        }
+                        RegionAction::None => {}
+                    }
+                } else {
                     self.state = AppState::ModeSelect { device_name };
                 }
             }
@@ -438,6 +477,20 @@ impl eframe::App for App {
         self.core.process_backend_events();
         self.core.check_connecting_timeout();
         self.core.check_pin_verify();
+
+        // Manage fullscreen for region select
+        let should_fullscreen = matches!(self.core.state, AppState::RegionSelect { .. });
+        if should_fullscreen && !self.core.is_fullscreen {
+            self.core.is_fullscreen = true;
+            if let Some(monitor) = ctx.input(|i| i.viewport().monitor_size) {
+                ctx.send_viewport_cmd(ViewportCommand::Decorations(false));
+                ctx.send_viewport_cmd(ViewportCommand::InnerSize(egui::Vec2::new(monitor.x, monitor.y)));
+                ctx.send_viewport_cmd(ViewportCommand::OuterPosition(egui::pos2(0.0, 0.0)));
+            }
+        } else if !should_fullscreen && self.core.is_fullscreen {
+            self.core.is_fullscreen = false;
+            ctx.send_viewport_cmd(ViewportCommand::InnerSize(egui::Vec2::new(PANEL_WIDTH, PANEL_MAX_HEIGHT)));
+        }
 
         #[cfg(debug_assertions)]
         self.core.handle_debug_keys(ctx);
