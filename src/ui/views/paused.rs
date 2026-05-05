@@ -19,7 +19,12 @@ pub fn render(ui: &mut Ui, device_name: &str) -> PausedAction {
         ui.painter()
             .circle_filled(rect.center(), 4.0, COLOR_WARNING);
         ui.add_space(2.0);
-        ui.label(RichText::new(APP_NAME).strong().size(15.0).color(COLOR_TEXT));
+        ui.label(
+            RichText::new(APP_NAME)
+                .strong()
+                .size(15.0)
+                .color(COLOR_TEXT),
+        );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.add_space(PADDING);
             Frame::new()
@@ -27,7 +32,12 @@ pub fn render(ui: &mut Ui, device_name: &str) -> PausedAction {
                 .corner_radius(CornerRadius::same(10))
                 .inner_margin(egui::Margin::symmetric(8, 3))
                 .show(ui, |ui| {
-                    ui.label(RichText::new("已暂停").size(11.0).color(COLOR_WARNING).strong());
+                    ui.label(
+                        RichText::new("已暂停")
+                            .size(11.0)
+                            .color(COLOR_WARNING)
+                            .strong(),
+                    );
                 });
         });
     });
@@ -68,9 +78,7 @@ pub fn render(ui: &mut Ui, device_name: &str) -> PausedAction {
                                         .strong()
                                         .color(COLOR_TEXT),
                                 );
-                                ui.label(
-                                    RichText::new("全屏镜像").size(11.0).color(COLOR_MUTED),
-                                );
+                                ui.label(RichText::new("全屏镜像").size(11.0).color(COLOR_MUTED));
                             });
                         });
                     });
@@ -82,9 +90,17 @@ pub fn render(ui: &mut Ui, device_name: &str) -> PausedAction {
     ui.vertical_centered(|ui| {
         ui.label(RichText::new("⏸").size(32.0));
         ui.add_space(8.0);
-        ui.label(RichText::new("投屏已暂停").size(13.0).color(COLOR_TEXT_SECONDARY));
+        ui.label(
+            RichText::new("投屏已暂停")
+                .size(13.0)
+                .color(COLOR_TEXT_SECONDARY),
+        );
         ui.add_space(4.0);
-        ui.label(RichText::new("接收端显示最后一帧画面").size(11.0).color(COLOR_MUTED));
+        ui.label(
+            RichText::new("接收端显示最后一帧画面")
+                .size(11.0)
+                .color(COLOR_MUTED),
+        );
     });
     ui.add_space(24.0);
 
@@ -93,10 +109,15 @@ pub fn render(ui: &mut Ui, device_name: &str) -> PausedAction {
         ui.add_space(PADDING);
         let half_width = (PANEL_WIDTH - PADDING * 2.0 - SPACING - 4.0) / 2.0;
 
-        let resume_btn = Button::new(RichText::new("▶ 恢复").size(13.0).color(COLOR_BG_WHITE).strong())
-            .fill(COLOR_BRAND)
-            .corner_radius(CornerRadius::same(BUTTON_ROUNDING))
-            .min_size(Vec2::new(half_width, BUTTON_HEIGHT));
+        let resume_btn = Button::new(
+            RichText::new("▶ 恢复")
+                .size(13.0)
+                .color(COLOR_BG_WHITE)
+                .strong(),
+        )
+        .fill(COLOR_BRAND)
+        .corner_radius(CornerRadius::same(BUTTON_ROUNDING))
+        .min_size(Vec2::new(half_width, BUTTON_HEIGHT));
         if ui.add(resume_btn).clicked() {
             action = PausedAction::Resume;
         }

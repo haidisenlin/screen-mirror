@@ -12,8 +12,16 @@ pub struct WindowInfo {
 #[derive(Debug, Clone)]
 pub enum CaptureMode {
     FullScreen,
-    Window { id: u64, title: String },
-    Region { x: f64, y: f64, width: f64, height: f64 },
+    Window {
+        id: u64,
+        title: String,
+    },
+    Region {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -43,13 +51,18 @@ pub enum BackendEvent {
     PairingSuccess,
     PairingFailed(String),
     PairingTimeout,
-    PinMatched { device_name: String, addr: SocketAddr },
+    PinMatched {
+        device_name: String,
+        addr: SocketAddr,
+    },
     PinNotFound,
     StreamingStarted,
     StatsUpdate(StreamStats),
     Disconnected(String),
     WindowList(Vec<WindowInfo>),
-    CaptureTargetLost { reason: String },
+    CaptureTargetLost {
+        reason: String,
+    },
 }
 
 #[cfg(test)]

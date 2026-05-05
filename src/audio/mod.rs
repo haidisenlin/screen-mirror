@@ -1,5 +1,5 @@
-pub mod opus_encoder;
 pub mod opus_decoder;
+pub mod opus_encoder;
 pub mod output;
 
 pub struct AudioConfig {

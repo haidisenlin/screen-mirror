@@ -199,10 +199,11 @@ impl MetalRenderer {
         // fill the view.
         let cur = self.metal_layer.drawableSize();
         if cur.width as usize != width || cur.height as usize != height {
-            self.metal_layer.setDrawableSize(objc2_core_foundation::CGSize {
-                width: width as f64,
-                height: height as f64,
-            });
+            self.metal_layer
+                .setDrawableSize(objc2_core_foundation::CGSize {
+                    width: width as f64,
+                    height: height as f64,
+                });
         }
 
         // ── Wrap the CVPixelBuffer as an MTLTexture via the texture cache ─────
@@ -221,7 +222,10 @@ impl MetalRenderer {
             )
         };
         if status != 0 || cv_texture.is_null() {
-            anyhow::bail!("CVMetalTextureCacheCreateTextureFromImage failed: {}", status);
+            anyhow::bail!(
+                "CVMetalTextureCacheCreateTextureFromImage failed: {}",
+                status
+            );
         }
 
         // Get the underlying id<MTLTexture> from the CVMetalTexture wrapper.

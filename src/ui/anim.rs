@@ -27,7 +27,8 @@ impl AiBackground {
         self.paint_network(&painter, rect, t);
         self.paint_rising_particles(&painter, rect, t);
 
-        ui.ctx().request_repaint_after(std::time::Duration::from_millis(33));
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(33));
     }
 
     fn paint_glow_orbs(&self, painter: &egui::Painter, rect: Rect, t: f32) {
@@ -92,7 +93,12 @@ impl AiBackground {
                         painter.circle_filled(
                             pulse_pos,
                             1.8,
-                            Color32::from_rgba_premultiplied(100, 160, 255, (strength * 90.0) as u8),
+                            Color32::from_rgba_premultiplied(
+                                100,
+                                160,
+                                255,
+                                (strength * 90.0) as u8,
+                            ),
                         );
                     }
                 }

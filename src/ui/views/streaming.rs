@@ -20,7 +20,12 @@ pub fn render(ui: &mut Ui, device_name: &str, stats: &StreamStats) -> StreamingA
         ui.painter()
             .circle_filled(rect.center(), 4.0, COLOR_SUCCESS);
         ui.add_space(2.0);
-        ui.label(RichText::new(APP_NAME).strong().size(15.0).color(COLOR_TEXT));
+        ui.label(
+            RichText::new(APP_NAME)
+                .strong()
+                .size(15.0)
+                .color(COLOR_TEXT),
+        );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.add_space(PADDING);
             Frame::new()
@@ -28,7 +33,12 @@ pub fn render(ui: &mut Ui, device_name: &str, stats: &StreamStats) -> StreamingA
                 .corner_radius(CornerRadius::same(10))
                 .inner_margin(egui::Margin::symmetric(8, 3))
                 .show(ui, |ui| {
-                    ui.label(RichText::new("投屏中").size(11.0).color(COLOR_SUCCESS).strong());
+                    ui.label(
+                        RichText::new("投屏中")
+                            .size(11.0)
+                            .color(COLOR_SUCCESS)
+                            .strong(),
+                    );
                 });
         });
     });
@@ -69,9 +79,7 @@ pub fn render(ui: &mut Ui, device_name: &str, stats: &StreamStats) -> StreamingA
                                         .strong()
                                         .color(COLOR_TEXT),
                                 );
-                                ui.label(
-                                    RichText::new("全屏镜像").size(11.0).color(COLOR_MUTED),
-                                );
+                                ui.label(RichText::new("全屏镜像").size(11.0).color(COLOR_MUTED));
                             });
                         });
                     });
@@ -86,7 +94,11 @@ pub fn render(ui: &mut Ui, device_name: &str, stats: &StreamStats) -> StreamingA
         let half = (PANEL_WIDTH - PADDING * 2.0 - SPACING - 4.0) / 2.0;
         ui.vertical(|ui| {
             ui.set_width(half);
-            stat_card(ui, "分辨率", &format!("{}×{}", stats.resolution_w, stats.resolution_h));
+            stat_card(
+                ui,
+                "分辨率",
+                &format!("{}×{}", stats.resolution_w, stats.resolution_h),
+            );
             ui.add_space(6.0);
             stat_card(ui, "码率", &format_bitrate(stats.bitrate_bps));
         });
@@ -106,11 +118,15 @@ pub fn render(ui: &mut Ui, device_name: &str, stats: &StreamStats) -> StreamingA
         ui.add_space(PADDING);
         let half_width = (PANEL_WIDTH - PADDING * 2.0 - SPACING - 4.0) / 2.0;
 
-        let pause_btn = Button::new(RichText::new("⏸ 暂停").size(13.0).color(COLOR_TEXT_SECONDARY))
-            .fill(COLOR_BG_CARD)
-            .stroke(egui::Stroke::new(1.0, COLOR_BORDER))
-            .corner_radius(CornerRadius::same(BUTTON_ROUNDING))
-            .min_size(Vec2::new(half_width, BUTTON_HEIGHT));
+        let pause_btn = Button::new(
+            RichText::new("⏸ 暂停")
+                .size(13.0)
+                .color(COLOR_TEXT_SECONDARY),
+        )
+        .fill(COLOR_BG_CARD)
+        .stroke(egui::Stroke::new(1.0, COLOR_BORDER))
+        .corner_radius(CornerRadius::same(BUTTON_ROUNDING))
+        .min_size(Vec2::new(half_width, BUTTON_HEIGHT));
         if ui.add(pause_btn).clicked() {
             action = StreamingAction::Pause;
         }

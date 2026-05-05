@@ -1,7 +1,9 @@
 use std::net::SocketAddr;
 use std::time::Instant;
 
-use eframe::egui::{self, Button, CornerRadius, Frame, Pos2, RichText, Sense, Stroke, StrokeKind, Ui, Vec2};
+use eframe::egui::{
+    self, Button, CornerRadius, Frame, Pos2, RichText, Sense, Stroke, StrokeKind, Ui, Vec2,
+};
 
 use crate::discovery::browser::DiscoveredReceiver;
 use crate::ui::theme::*;
@@ -9,10 +11,21 @@ use crate::ui::theme::*;
 #[derive(Debug)]
 pub enum PinVerifyState {
     Idle,
-    Debouncing { since: Instant, pin: String },
-    Verifying { pin: String },
-    Matched { device_name: String, addr: SocketAddr, pin: String },
-    NotFound { pin: String },
+    Debouncing {
+        since: Instant,
+        pin: String,
+    },
+    Verifying {
+        pin: String,
+    },
+    Matched {
+        device_name: String,
+        addr: SocketAddr,
+        pin: String,
+    },
+    NotFound {
+        pin: String,
+    },
 }
 
 impl Default for PinVerifyState {
@@ -44,8 +57,14 @@ fn paint_cast_icon(ui: &mut Ui, center: Pos2, size: f32, color: Color32) {
     // Monitor body
     let monitor_w = s * 0.7;
     let monitor_h = s * 0.45;
-    let top_left = Pos2::new(center.x - monitor_w / 2.0, center.y - monitor_h / 2.0 - s * 0.08);
-    let bottom_right = Pos2::new(center.x + monitor_w / 2.0, center.y + monitor_h / 2.0 - s * 0.08);
+    let top_left = Pos2::new(
+        center.x - monitor_w / 2.0,
+        center.y - monitor_h / 2.0 - s * 0.08,
+    );
+    let bottom_right = Pos2::new(
+        center.x + monitor_w / 2.0,
+        center.y + monitor_h / 2.0 - s * 0.08,
+    );
     p.rect_stroke(
         egui::Rect::from_two_pos(top_left, bottom_right),
         CornerRadius::same(3),
@@ -55,7 +74,10 @@ fn paint_cast_icon(ui: &mut Ui, center: Pos2, size: f32, color: Color32) {
     // Stand
     let stand_y = bottom_right.y;
     p.line_segment(
-        [Pos2::new(center.x, stand_y), Pos2::new(center.x, stand_y + s * 0.12)],
+        [
+            Pos2::new(center.x, stand_y),
+            Pos2::new(center.x, stand_y + s * 0.12),
+        ],
         Stroke::new(2.0, color),
     );
     p.line_segment(
@@ -73,8 +95,10 @@ fn paint_cast_icon(ui: &mut Ui, center: Pos2, size: f32, color: Color32) {
         let arc_color = Color32::from_rgba_premultiplied(color.r(), color.g(), color.b(), alpha);
         let segments = 12;
         for seg in 0..segments {
-            let a1 = -std::f32::consts::FRAC_PI_2 + std::f32::consts::FRAC_PI_2 * seg as f32 / segments as f32;
-            let a2 = -std::f32::consts::FRAC_PI_2 + std::f32::consts::FRAC_PI_2 * (seg + 1) as f32 / segments as f32;
+            let a1 = -std::f32::consts::FRAC_PI_2
+                + std::f32::consts::FRAC_PI_2 * seg as f32 / segments as f32;
+            let a2 = -std::f32::consts::FRAC_PI_2
+                + std::f32::consts::FRAC_PI_2 * (seg + 1) as f32 / segments as f32;
             p.line_segment(
                 [
                     Pos2::new(arc_center.x + r * a1.cos(), arc_center.y + r * a1.sin()),
@@ -107,14 +131,23 @@ pub fn render(ui: &mut Ui, state: &mut IdleViewState) -> IdleAction {
         let (icon_rect, _) = ui.allocate_exact_size(Vec2::splat(20.0), Sense::hover());
         paint_brand_icon(ui, icon_rect.center(), 10.0);
         ui.add_space(6.0);
-        ui.label(RichText::new(APP_NAME).strong().size(15.0).color(COLOR_TEXT));
+        ui.label(
+            RichText::new(APP_NAME)
+                .strong()
+                .size(15.0)
+                .color(COLOR_TEXT),
+        );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.add_space(PADDING);
             let count = state.devices.len();
             let (badge_text, badge_color, badge_bg) = if count == 0 {
                 ("搜索中...".to_string(), COLOR_MUTED, COLOR_BG_CARD)
             } else {
-                (format!("{count} 台可用"), COLOR_SUCCESS, COLOR_SUCCESS_LIGHT)
+                (
+                    format!("{count} 台可用"),
+                    COLOR_SUCCESS,
+                    COLOR_SUCCESS_LIGHT,
+                )
             };
             Frame::new()
                 .fill(badge_bg)
@@ -124,18 +157,24 @@ pub fn render(ui: &mut Ui, state: &mut IdleViewState) -> IdleAction {
                     ui.horizontal(|ui| {
                         if count == 0 {
                             // Pulsing dot for "searching"
-                            let (dot_rect, _) = ui.allocate_exact_size(Vec2::splat(6.0), Sense::hover());
+                            let (dot_rect, _) =
+                                ui.allocate_exact_size(Vec2::splat(6.0), Sense::hover());
                             let t = ui.input(|i| i.time) as f32;
                             let alpha = (t * 2.0).sin() * 0.4 + 0.6;
                             let dot_color = Color32::from_rgba_unmultiplied(
-                                COLOR_BRAND.r(), COLOR_BRAND.g(), COLOR_BRAND.b(),
+                                COLOR_BRAND.r(),
+                                COLOR_BRAND.g(),
+                                COLOR_BRAND.b(),
                                 (alpha * 255.0) as u8,
                             );
-                            ui.painter().circle_filled(dot_rect.center(), 3.0, dot_color);
+                            ui.painter()
+                                .circle_filled(dot_rect.center(), 3.0, dot_color);
                             ui.add_space(2.0);
                         } else {
-                            let (dot_rect, _) = ui.allocate_exact_size(Vec2::splat(6.0), Sense::hover());
-                            ui.painter().circle_filled(dot_rect.center(), 3.0, COLOR_SUCCESS);
+                            let (dot_rect, _) =
+                                ui.allocate_exact_size(Vec2::splat(6.0), Sense::hover());
+                            ui.painter()
+                                .circle_filled(dot_rect.center(), 3.0, COLOR_SUCCESS);
                             ui.add_space(2.0);
                         }
                         ui.label(RichText::new(badge_text).size(11.0).color(badge_color));
@@ -148,8 +187,10 @@ pub fn render(ui: &mut Ui, state: &mut IdleViewState) -> IdleAction {
     // Separator line
     ui.horizontal(|ui| {
         ui.add_space(PADDING);
-        let (rect, _) = ui.allocate_exact_size(Vec2::new(PANEL_WIDTH - PADDING * 2.0, 1.0), Sense::hover());
-        ui.painter().rect_filled(rect, CornerRadius::ZERO, COLOR_BORDER);
+        let (rect, _) =
+            ui.allocate_exact_size(Vec2::new(PANEL_WIDTH - PADDING * 2.0, 1.0), Sense::hover());
+        ui.painter()
+            .rect_filled(rect, CornerRadius::ZERO, COLOR_BORDER);
     });
 
     if state.connecting {
@@ -176,7 +217,11 @@ pub fn render(ui: &mut Ui, state: &mut IdleViewState) -> IdleAction {
         let (icon_rect, _) = ui.allocate_exact_size(Vec2::splat(56.0), Sense::hover());
         paint_cast_icon(ui, icon_rect.center(), 56.0, COLOR_TEXT_SECONDARY);
         ui.add_space(12.0);
-        ui.label(RichText::new("输入投屏码开始投屏").size(14.0).color(COLOR_TEXT));
+        ui.label(
+            RichText::new("输入投屏码开始投屏")
+                .size(14.0)
+                .color(COLOR_TEXT),
+        );
         ui.add_space(4.0);
         ui.label(
             RichText::new("请查看接收端屏幕上的 6 位数字")
@@ -189,7 +234,12 @@ pub fn render(ui: &mut Ui, state: &mut IdleViewState) -> IdleAction {
     // PIN input label
     ui.horizontal(|ui| {
         ui.add_space(PADDING);
-        ui.label(RichText::new("投屏码").size(12.0).strong().color(COLOR_TEXT_SECONDARY));
+        ui.label(
+            RichText::new("投屏码")
+                .size(12.0)
+                .strong()
+                .color(COLOR_TEXT_SECONDARY),
+        );
     });
     ui.add_space(6.0);
 
@@ -198,85 +248,85 @@ pub fn render(ui: &mut Ui, state: &mut IdleViewState) -> IdleAction {
     state.pin_cursor = state.pin_cursor.min(5);
 
     let mut clicked_box: Option<usize> = None;
-    let boxes_response = ui.horizontal(|ui| {
-        ui.add_space(PADDING);
-        let total_width = PANEL_WIDTH - PADDING * 2.0 - 4.0;
-        let gap = 8.0;
-        let box_width = (total_width - gap * 5.0) / 6.0;
+    let boxes_response = ui
+        .horizontal(|ui| {
+            ui.add_space(PADDING);
+            let total_width = PANEL_WIDTH - PADDING * 2.0 - 4.0;
+            let gap = 8.0;
+            let box_width = (total_width - gap * 5.0) / 6.0;
 
-        for i in 0..6 {
-            let ch = state.pin_input.chars().nth(i).map(|c| c.to_string()).unwrap_or_default();
-            let has_digit = !ch.is_empty();
-            let is_cursor = state.pin_cursor == i;
+            for i in 0..6 {
+                let ch = state
+                    .pin_input
+                    .chars()
+                    .nth(i)
+                    .map(|c| c.to_string())
+                    .unwrap_or_default();
+                let has_digit = !ch.is_empty();
+                let is_cursor = state.pin_cursor == i;
 
-            let (border, bg) = if is_cursor {
-                (Stroke::new(2.0, COLOR_BRAND), COLOR_BRAND_LIGHT)
-            } else if has_digit {
-                (
-                    Stroke::new(1.0, COLOR_BORDER),
-                    COLOR_BG_WHITE,
-                )
-            } else {
-                (
-                    Stroke::new(1.0, COLOR_BORDER_LIGHT),
-                    COLOR_BG_CARD,
-                )
-            };
+                let (border, bg) = if is_cursor {
+                    (Stroke::new(2.0, COLOR_BRAND), COLOR_BRAND_LIGHT)
+                } else if has_digit {
+                    (Stroke::new(1.0, COLOR_BORDER), COLOR_BG_WHITE)
+                } else {
+                    (Stroke::new(1.0, COLOR_BORDER_LIGHT), COLOR_BG_CARD)
+                };
 
-            let shadow = if has_digit && !is_cursor {
-                egui::epaint::Shadow {
-                    spread: 0,
-                    blur: 4,
-                    offset: [0, 1],
-                    color: Color32::from_black_alpha(10),
+                let shadow = if has_digit && !is_cursor {
+                    egui::epaint::Shadow {
+                        spread: 0,
+                        blur: 4,
+                        offset: [0, 1],
+                        color: Color32::from_black_alpha(10),
+                    }
+                } else {
+                    egui::epaint::Shadow::NONE
+                };
+
+                let box_resp = Frame::new()
+                    .fill(bg)
+                    .stroke(border)
+                    .corner_radius(CornerRadius::same(ITEM_ROUNDING))
+                    .shadow(shadow)
+                    .show(ui, |ui| {
+                        ui.set_width(box_width);
+                        ui.set_height(48.0);
+                        ui.centered_and_justified(|ui| {
+                            if has_digit {
+                                ui.label(
+                                    RichText::new(&ch)
+                                        .size(24.0)
+                                        .family(egui::FontFamily::Monospace)
+                                        .strong()
+                                        .color(COLOR_TEXT),
+                                );
+                            } else if !is_cursor {
+                                let center = ui.max_rect().center();
+                                ui.painter().line_segment(
+                                    [
+                                        Pos2::new(center.x - 6.0, center.y + 8.0),
+                                        Pos2::new(center.x + 6.0, center.y + 8.0),
+                                    ],
+                                    Stroke::new(1.5, COLOR_BORDER_LIGHT),
+                                );
+                            }
+                        });
+                    })
+                    .response;
+
+                let click_id = ui.id().with(("pin_box_click", i));
+                let click_resp = ui.interact(box_resp.rect, click_id, Sense::click());
+                if click_resp.clicked() {
+                    clicked_box = Some(i);
                 }
-            } else {
-                egui::epaint::Shadow::NONE
-            };
 
-            let box_resp = Frame::new()
-                .fill(bg)
-                .stroke(border)
-                .corner_radius(CornerRadius::same(ITEM_ROUNDING))
-                .shadow(shadow)
-                .show(ui, |ui| {
-                    ui.set_width(box_width);
-                    ui.set_height(48.0);
-                    ui.centered_and_justified(|ui| {
-                        if has_digit {
-                            ui.label(
-                                RichText::new(&ch)
-                                    .size(24.0)
-                                    .family(egui::FontFamily::Monospace)
-                                    .strong()
-                                    .color(COLOR_TEXT),
-                            );
-                        } else if !is_cursor {
-                            let center = ui.max_rect().center();
-                            ui.painter().line_segment(
-                                [
-                                    Pos2::new(center.x - 6.0, center.y + 8.0),
-                                    Pos2::new(center.x + 6.0, center.y + 8.0),
-                                ],
-                                Stroke::new(1.5, COLOR_BORDER_LIGHT),
-                            );
-                        }
-                    });
-                })
-                .response;
-
-            let click_id = ui.id().with(("pin_box_click", i));
-            let click_resp = ui.interact(box_resp.rect, click_id, Sense::click());
-            if click_resp.clicked() {
-                clicked_box = Some(i);
+                if i < 5 {
+                    ui.add_space(gap - ui.spacing().item_spacing.x);
+                }
             }
-
-            if i < 5 {
-                ui.add_space(gap - ui.spacing().item_spacing.x);
-            }
-        }
-    })
-    .response;
+        })
+        .response;
 
     // Handle box click — allow jumping to any box
     if let Some(i) = clicked_box {
@@ -382,11 +432,16 @@ pub fn render(ui: &mut Ui, state: &mut IdleViewState) -> IdleAction {
             ),
         };
 
-        let btn = Button::new(RichText::new(&btn_text).size(15.0).strong().color(text_color))
-            .fill(fill)
-            .stroke(stroke)
-            .corner_radius(CornerRadius::same(BUTTON_ROUNDING))
-            .min_size(Vec2::new(btn_width, BUTTON_HEIGHT));
+        let btn = Button::new(
+            RichText::new(&btn_text)
+                .size(15.0)
+                .strong()
+                .color(text_color),
+        )
+        .fill(fill)
+        .stroke(stroke)
+        .corner_radius(CornerRadius::same(BUTTON_ROUNDING))
+        .min_size(Vec2::new(btn_width, BUTTON_HEIGHT));
 
         if ui.add_enabled(enabled, btn).clicked() {
             if matches!(state.pin_verify_state, PinVerifyState::Matched { .. }) {
@@ -401,7 +456,12 @@ pub fn render(ui: &mut Ui, state: &mut IdleViewState) -> IdleAction {
     if !state.devices.is_empty() {
         ui.horizontal(|ui| {
             ui.add_space(PADDING);
-            ui.label(RichText::new("可用设备").size(11.0).strong().color(COLOR_MUTED));
+            ui.label(
+                RichText::new("可用设备")
+                    .size(11.0)
+                    .strong()
+                    .color(COLOR_MUTED),
+            );
         });
         ui.add_space(4.0);
 
@@ -410,7 +470,11 @@ pub fn render(ui: &mut Ui, state: &mut IdleViewState) -> IdleAction {
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
                 let card_width = PANEL_WIDTH - 28.0;
-                let card_bg = if is_selected { COLOR_BRAND_LIGHT } else { COLOR_BG_CARD };
+                let card_bg = if is_selected {
+                    COLOR_BRAND_LIGHT
+                } else {
+                    COLOR_BG_CARD
+                };
                 let card_border = if is_selected {
                     Stroke::new(1.0, COLOR_BRAND)
                 } else {
@@ -426,9 +490,14 @@ pub fn render(ui: &mut Ui, state: &mut IdleViewState) -> IdleAction {
                         ui.set_width(card_width - 24.0);
                         ui.horizontal(|ui| {
                             // Device icon (monitor drawn with painter)
-                            let (icon_rect, _) = ui.allocate_exact_size(Vec2::splat(18.0), Sense::hover());
+                            let (icon_rect, _) =
+                                ui.allocate_exact_size(Vec2::splat(18.0), Sense::hover());
                             let ic = icon_rect.center();
-                            let icon_color = if is_selected { COLOR_BRAND } else { COLOR_TEXT_SECONDARY };
+                            let icon_color = if is_selected {
+                                COLOR_BRAND
+                            } else {
+                                COLOR_TEXT_SECONDARY
+                            };
                             ui.painter().rect_stroke(
                                 egui::Rect::from_center_size(
                                     Pos2::new(ic.x, ic.y - 1.0),
@@ -439,17 +508,21 @@ pub fn render(ui: &mut Ui, state: &mut IdleViewState) -> IdleAction {
                                 StrokeKind::Outside,
                             );
                             ui.painter().line_segment(
-                                [Pos2::new(ic.x - 4.0, ic.y + 6.0), Pos2::new(ic.x + 4.0, ic.y + 6.0)],
+                                [
+                                    Pos2::new(ic.x - 4.0, ic.y + 6.0),
+                                    Pos2::new(ic.x + 4.0, ic.y + 6.0),
+                                ],
                                 Stroke::new(1.5, icon_color),
                             );
                             ui.add_space(4.0);
                             ui.vertical(|ui| {
-                                ui.label(
-                                    RichText::new(&device.name)
-                                        .size(12.0)
-                                        .strong()
-                                        .color(if is_selected { COLOR_BRAND_DARK } else { COLOR_TEXT }),
-                                );
+                                ui.label(RichText::new(&device.name).size(12.0).strong().color(
+                                    if is_selected {
+                                        COLOR_BRAND_DARK
+                                    } else {
+                                        COLOR_TEXT
+                                    },
+                                ));
                                 ui.label(
                                     RichText::new(device.addr.to_string())
                                         .size(10.0)
@@ -479,7 +552,11 @@ pub fn render(ui: &mut Ui, state: &mut IdleViewState) -> IdleAction {
                 .inner_margin(egui::Margin::symmetric(12, 8))
                 .show(ui, |ui| {
                     ui.set_width(PANEL_WIDTH - PADDING * 2.0 - 28.0);
-                    ui.label(RichText::new(format!("✕ {error}")).size(12.0).color(COLOR_ERROR));
+                    ui.label(
+                        RichText::new(format!("✕ {error}"))
+                            .size(12.0)
+                            .color(COLOR_ERROR),
+                    );
                 });
         });
     }

@@ -90,7 +90,11 @@ fn take_screenshot_macos() -> Result<Screenshot> {
         CFRelease(data);
         CGImageRelease(image);
 
-        Ok(Screenshot { width, height, rgba })
+        Ok(Screenshot {
+            width,
+            height,
+            rgba,
+        })
     }
 }
 

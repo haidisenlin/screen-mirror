@@ -123,7 +123,11 @@ impl AppCore {
                 }
                 BackendEvent::PinMatched { device_name, addr } => {
                     let pin = self.idle_view.pin_input.clone();
-                    self.idle_view.pin_verify_state = PinVerifyState::Matched { device_name, addr, pin };
+                    self.idle_view.pin_verify_state = PinVerifyState::Matched {
+                        device_name,
+                        addr,
+                        pin,
+                    };
                 }
                 BackendEvent::PinNotFound => {
                     let pin = self.idle_view.pin_input.clone();
@@ -149,12 +153,19 @@ impl AppCore {
                     }
                 }
                 BackendEvent::StatsUpdate(stats) => {
-                    if let AppState::Streaming { stats: ref mut s, .. } = self.state {
+                    if let AppState::Streaming {
+                        stats: ref mut s, ..
+                    } = self.state
+                    {
                         *s = stats;
                     }
                 }
                 BackendEvent::Disconnected(reason) => {
-                    self.idle_view.error = if reason.is_empty() { None } else { Some(reason) };
+                    self.idle_view.error = if reason.is_empty() {
+                        None
+                    } else {
+                        Some(reason)
+                    };
                     self.idle_view.connecting = false;
                     self.idle_view.connecting_device = None;
                     self.state = AppState::Idle;
@@ -193,7 +204,10 @@ impl AppCore {
         }
 
         match &self.idle_view.pin_verify_state {
-            PinVerifyState::Debouncing { pin: prev_pin, since } => {
+            PinVerifyState::Debouncing {
+                pin: prev_pin,
+                since,
+            } => {
                 if *prev_pin != *pin {
                     self.idle_view.pin_verify_state = PinVerifyState::Debouncing {
                         since: Instant::now(),
@@ -202,10 +216,13 @@ impl AppCore {
                 } else if since.elapsed() >= Duration::from_millis(300) {
                     let verified_pin = pin.clone();
                     let _ = self.cmd_tx.send(UiCommand::VerifyPin { pin: pin.clone() });
-                    self.idle_view.pin_verify_state = PinVerifyState::Verifying { pin: verified_pin };
+                    self.idle_view.pin_verify_state =
+                        PinVerifyState::Verifying { pin: verified_pin };
                 }
             }
-            PinVerifyState::Matched { pin: verified_pin, .. }
+            PinVerifyState::Matched {
+                pin: verified_pin, ..
+            }
             | PinVerifyState::NotFound { pin: verified_pin } => {
                 if *pin != *verified_pin {
                     self.idle_view.pin_verify_state = PinVerifyState::Debouncing {
@@ -225,7 +242,10 @@ impl AppCore {
     }
 
     fn handle_connect_matched(&mut self) {
-        if let PinVerifyState::Matched { device_name, addr, .. } = &self.idle_view.pin_verify_state {
+        if let PinVerifyState::Matched {
+            device_name, addr, ..
+        } = &self.idle_view.pin_verify_state
+        {
             let addr = *addr;
             let name = device_name.clone();
             let pin = self.idle_view.pin_input.clone();
@@ -262,7 +282,10 @@ impl AppCore {
                 return;
             }
             for event in &input.events {
-                if let egui::Event::Key { key, pressed: true, .. } = event {
+                if let egui::Event::Key {
+                    key, pressed: true, ..
+                } = event
+                {
                     match key {
                         egui::Key::Num1 => {
                             self.idle_view.connecting = false;
@@ -297,12 +320,18 @@ impl AppCore {
                             self.idle_view.devices = vec![
                                 DiscoveredReceiver {
                                     name: "客厅电视".to_string(),
-                                    addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)), 9000),
+                                    addr: SocketAddr::new(
+                                        IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)),
+                                        9000,
+                                    ),
                                     http_port: Some(19400),
                                 },
                                 DiscoveredReceiver {
                                     name: "会议室投影".to_string(),
-                                    addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 101)), 9000),
+                                    addr: SocketAddr::new(
+                                        IpAddr::V4(Ipv4Addr::new(192, 168, 1, 101)),
+                                        9000,
+                                    ),
                                     http_port: Some(19401),
                                 },
                             ];
@@ -313,7 +342,10 @@ impl AppCore {
                         egui::Key::Num7 => {
                             self.idle_view.pin_verify_state = PinVerifyState::Matched {
                                 device_name: "测试电视".to_string(),
-                                addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)), 9000),
+                                addr: SocketAddr::new(
+                                    IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)),
+                                    9000,
+                                ),
                                 pin: self.idle_view.pin_input.clone(),
                             };
                         }
@@ -379,11 +411,8 @@ impl AppCore {
                         let device_name = device_name.clone();
                         match take_screenshot() {
                             Ok(shot) => {
-                                self.region_select = Some(RegionSelectView::new(
-                                    shot.rgba,
-                                    shot.width,
-                                    shot.height,
-                                ));
+                                self.region_select =
+                                    Some(RegionSelectView::new(shot.rgba, shot.width, shot.height));
                                 self.state = AppState::RegionSelect { device_name };
                             }
                             Err(e) => {
@@ -498,12 +527,17 @@ impl eframe::App for App {
             self.core.is_fullscreen = true;
             if let Some(monitor) = ctx.input(|i| i.viewport().monitor_size) {
                 ctx.send_viewport_cmd(ViewportCommand::Decorations(false));
-                ctx.send_viewport_cmd(ViewportCommand::InnerSize(egui::Vec2::new(monitor.x, monitor.y)));
+                ctx.send_viewport_cmd(ViewportCommand::InnerSize(egui::Vec2::new(
+                    monitor.x, monitor.y,
+                )));
                 ctx.send_viewport_cmd(ViewportCommand::OuterPosition(egui::pos2(0.0, 0.0)));
             }
         } else if !should_fullscreen && self.core.is_fullscreen {
             self.core.is_fullscreen = false;
-            ctx.send_viewport_cmd(ViewportCommand::InnerSize(egui::Vec2::new(PANEL_WIDTH, PANEL_MAX_HEIGHT)));
+            ctx.send_viewport_cmd(ViewportCommand::InnerSize(egui::Vec2::new(
+                PANEL_WIDTH,
+                PANEL_MAX_HEIGHT,
+            )));
         }
 
         #[cfg(debug_assertions)]
@@ -601,7 +635,11 @@ mod tests {
     use super::*;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-    fn make_core() -> (AppCore, mpsc::Sender<BackendEvent>, mpsc::Receiver<UiCommand>) {
+    fn make_core() -> (
+        AppCore,
+        mpsc::Sender<BackendEvent>,
+        mpsc::Receiver<UiCommand>,
+    ) {
         let (cmd_tx, cmd_rx) = mpsc::channel();
         let (evt_tx, evt_rx) = mpsc::channel();
         let core = AppCore::new(cmd_tx, evt_rx);
@@ -681,7 +719,9 @@ mod tests {
         };
         core.idle_view.connecting = true;
 
-        evt_tx.send(BackendEvent::PairingFailed("wrong pin".to_string())).unwrap();
+        evt_tx
+            .send(BackendEvent::PairingFailed("wrong pin".to_string()))
+            .unwrap();
         core.process_backend_events();
 
         assert!(matches!(core.state, AppState::Idle));
@@ -766,7 +806,9 @@ mod tests {
             },
         };
 
-        evt_tx.send(BackendEvent::Disconnected("network error".to_string())).unwrap();
+        evt_tx
+            .send(BackendEvent::Disconnected("network error".to_string()))
+            .unwrap();
         core.process_backend_events();
 
         assert!(matches!(core.state, AppState::Idle));
@@ -1326,9 +1368,7 @@ mod tests {
         core.process_backend_events();
         assert_eq!(core.idle_view.devices.len(), 1);
 
-        evt_tx
-            .send(BackendEvent::DevicesUpdated(vec![]))
-            .unwrap();
+        evt_tx.send(BackendEvent::DevicesUpdated(vec![])).unwrap();
         core.process_backend_events();
         assert!(core.idle_view.devices.is_empty());
     }
@@ -1390,7 +1430,9 @@ mod tests {
     fn pin_matched_event_updates_state() {
         let (mut core, evt_tx, _cmd_rx) = make_core();
         core.idle_view.pin_input = "123456".to_string();
-        core.idle_view.pin_verify_state = PinVerifyState::Verifying { pin: "123456".to_string() };
+        core.idle_view.pin_verify_state = PinVerifyState::Verifying {
+            pin: "123456".to_string(),
+        };
         let addr: SocketAddr = "192.168.1.100:9000".parse().unwrap();
         evt_tx
             .send(BackendEvent::PinMatched {
@@ -1409,7 +1451,9 @@ mod tests {
     fn pin_not_found_event_updates_state() {
         let (mut core, evt_tx, _cmd_rx) = make_core();
         core.idle_view.pin_input = "123456".to_string();
-        core.idle_view.pin_verify_state = PinVerifyState::Verifying { pin: "123456".to_string() };
+        core.idle_view.pin_verify_state = PinVerifyState::Verifying {
+            pin: "123456".to_string(),
+        };
         evt_tx.send(BackendEvent::PinNotFound).unwrap();
         core.process_backend_events();
         assert!(matches!(
@@ -1446,7 +1490,10 @@ mod tests {
         };
         core.check_pin_verify();
         // Should stay in Matched — no re-debounce
-        assert!(matches!(core.idle_view.pin_verify_state, PinVerifyState::Matched { .. }));
+        assert!(matches!(
+            core.idle_view.pin_verify_state,
+            PinVerifyState::Matched { .. }
+        ));
         assert!(cmd_rx.try_recv().is_err());
     }
 
@@ -1461,7 +1508,10 @@ mod tests {
         };
         core.check_pin_verify();
         // Should re-debounce because PIN changed
-        assert!(matches!(core.idle_view.pin_verify_state, PinVerifyState::Debouncing { .. }));
+        assert!(matches!(
+            core.idle_view.pin_verify_state,
+            PinVerifyState::Debouncing { .. }
+        ));
     }
 
     #[test]
@@ -1473,7 +1523,10 @@ mod tests {
             pin: "123456".to_string(),
         };
         core.check_pin_verify();
-        assert!(matches!(core.idle_view.pin_verify_state, PinVerifyState::Verifying { .. }));
+        assert!(matches!(
+            core.idle_view.pin_verify_state,
+            PinVerifyState::Verifying { .. }
+        ));
         let cmd = cmd_rx.try_recv().unwrap();
         assert!(matches!(cmd, UiCommand::VerifyPin { .. }));
     }
@@ -1481,14 +1534,20 @@ mod tests {
     #[test]
     fn mode_select_to_region_select_and_back() {
         let (mut core, _evt_tx, _cmd_rx) = make_core();
-        core.state = AppState::ModeSelect { device_name: "TV".to_string() };
+        core.state = AppState::ModeSelect {
+            device_name: "TV".to_string(),
+        };
 
         // Simulate entering region select
-        core.state = AppState::RegionSelect { device_name: "TV".to_string() };
+        core.state = AppState::RegionSelect {
+            device_name: "TV".to_string(),
+        };
         assert!(matches!(core.state, AppState::RegionSelect { .. }));
 
         // Simulate cancel → back to ModeSelect
-        core.state = AppState::ModeSelect { device_name: "TV".to_string() };
+        core.state = AppState::ModeSelect {
+            device_name: "TV".to_string(),
+        };
         assert!(matches!(core.state, AppState::ModeSelect { .. }));
     }
 
@@ -1498,13 +1557,21 @@ mod tests {
         core.state = AppState::Streaming {
             device_name: "TV".to_string(),
             stats: StreamStats {
-                resolution_w: 0, resolution_h: 0, fps: 0.0,
-                bitrate_bps: 0, latency_ms: 0.0, packet_loss_pct: 0.0,
+                resolution_w: 0,
+                resolution_h: 0,
+                fps: 0.0,
+                bitrate_bps: 0,
+                latency_ms: 0.0,
+                packet_loss_pct: 0.0,
             },
         };
         let gen_before = core.session_gen;
 
-        evt_tx.send(BackendEvent::CaptureTargetLost { reason: "window closed".to_string() }).unwrap();
+        evt_tx
+            .send(BackendEvent::CaptureTargetLost {
+                reason: "window closed".to_string(),
+            })
+            .unwrap();
         core.process_backend_events();
 
         assert_eq!(core.session_gen, gen_before + 1);
@@ -1514,7 +1581,11 @@ mod tests {
     #[test]
     fn window_list_cleared_on_new_session() {
         let (mut core, evt_tx, _cmd_rx) = make_core();
-        core.window_list = vec![WindowInfo { id: 1, title: "X".to_string(), app_name: "Y".to_string() }];
+        core.window_list = vec![WindowInfo {
+            id: 1,
+            title: "X".to_string(),
+            app_name: "Y".to_string(),
+        }];
         core.state = AppState::Connecting {
             device_name: "TV".to_string(),
             started_at: Instant::now(),
@@ -1529,21 +1600,37 @@ mod tests {
     #[test]
     fn start_streaming_with_window_mode() {
         let (mut core, _evt_tx, cmd_rx) = make_core();
-        core.state = AppState::ModeSelect { device_name: "TV".to_string() };
+        core.state = AppState::ModeSelect {
+            device_name: "TV".to_string(),
+        };
 
-        let mode = CaptureMode::Window { id: 42, title: "Firefox".to_string() };
+        let mode = CaptureMode::Window {
+            id: 42,
+            title: "Firefox".to_string(),
+        };
         let _ = core.cmd_tx.send(UiCommand::StartStreaming { mode });
 
         let cmd = cmd_rx.try_recv().unwrap();
-        assert!(matches!(cmd, UiCommand::StartStreaming { mode: CaptureMode::Window { id: 42, .. } }));
+        assert!(matches!(
+            cmd,
+            UiCommand::StartStreaming {
+                mode: CaptureMode::Window { id: 42, .. }
+            }
+        ));
     }
 
     #[test]
     fn capture_target_lost_from_paused() {
         let (mut core, evt_tx, _cmd_rx) = make_core();
-        core.state = AppState::Paused { device_name: "TV".to_string() };
+        core.state = AppState::Paused {
+            device_name: "TV".to_string(),
+        };
 
-        evt_tx.send(BackendEvent::CaptureTargetLost { reason: "app quit".to_string() }).unwrap();
+        evt_tx
+            .send(BackendEvent::CaptureTargetLost {
+                reason: "app quit".to_string(),
+            })
+            .unwrap();
         core.process_backend_events();
 
         assert!(matches!(core.state, AppState::ModeSelect { .. }));
@@ -1555,7 +1642,11 @@ mod tests {
         assert!(matches!(core.state, AppState::Idle));
         let gen_before = core.session_gen;
 
-        evt_tx.send(BackendEvent::CaptureTargetLost { reason: "test".to_string() }).unwrap();
+        evt_tx
+            .send(BackendEvent::CaptureTargetLost {
+                reason: "test".to_string(),
+            })
+            .unwrap();
         core.process_backend_events();
 
         // Should stay Idle, session_gen unchanged
@@ -1566,10 +1657,16 @@ mod tests {
     #[test]
     fn window_list_event_populates_list() {
         let (mut core, evt_tx, _cmd_rx) = make_core();
-        core.state = AppState::ModeSelect { device_name: "TV".to_string() };
-        evt_tx.send(BackendEvent::WindowList(vec![
-            WindowInfo { id: 1, title: "Browser".to_string(), app_name: "Firefox".to_string() },
-        ])).unwrap();
+        core.state = AppState::ModeSelect {
+            device_name: "TV".to_string(),
+        };
+        evt_tx
+            .send(BackendEvent::WindowList(vec![WindowInfo {
+                id: 1,
+                title: "Browser".to_string(),
+                app_name: "Firefox".to_string(),
+            }]))
+            .unwrap();
         core.process_backend_events();
         assert_eq!(core.window_list.len(), 1);
         assert_eq!(core.window_list[0].title, "Browser");
@@ -1581,11 +1678,19 @@ mod tests {
         core.state = AppState::Streaming {
             device_name: "TV".to_string(),
             stats: StreamStats {
-                resolution_w: 0, resolution_h: 0, fps: 0.0,
-                bitrate_bps: 0, latency_ms: 0.0, packet_loss_pct: 0.0,
+                resolution_w: 0,
+                resolution_h: 0,
+                fps: 0.0,
+                bitrate_bps: 0,
+                latency_ms: 0.0,
+                packet_loss_pct: 0.0,
             },
         };
-        evt_tx.send(BackendEvent::CaptureTargetLost { reason: "window closed".to_string() }).unwrap();
+        evt_tx
+            .send(BackendEvent::CaptureTargetLost {
+                reason: "window closed".to_string(),
+            })
+            .unwrap();
         core.process_backend_events();
         assert!(matches!(core.state, AppState::ModeSelect { .. }));
     }

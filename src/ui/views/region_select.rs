@@ -42,11 +42,8 @@ impl RegionSelectView {
                 [self.image_size[0] as usize, self.image_size[1] as usize],
                 &self.rgba_data,
             );
-            self.texture = Some(ctx.load_texture(
-                "screenshot",
-                image,
-                egui::TextureOptions::LINEAR,
-            ));
+            self.texture =
+                Some(ctx.load_texture("screenshot", image, egui::TextureOptions::LINEAR));
         }
     }
 
@@ -75,9 +72,7 @@ impl RegionSelectView {
         ui.input(|input| {
             for event in &input.events {
                 if let egui::Event::Key {
-                    key,
-                    pressed: true,
-                    ..
+                    key, pressed: true, ..
                 } = event
                 {
                     match key {

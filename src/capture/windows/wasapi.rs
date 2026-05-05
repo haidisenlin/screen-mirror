@@ -3,11 +3,13 @@ use std::thread;
 use std::time::Duration;
 
 use windows::Win32::Media::Audio::{
-    eConsole, eRender, IAudioCaptureClient, IAudioClient, IMMDeviceEnumerator,
-    MMDeviceEnumerator, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
-    AUDCLNT_STREAMFLAGS_LOOPBACK, AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+    AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM, AUDCLNT_STREAMFLAGS_LOOPBACK,
+    AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, IAudioCaptureClient, IAudioClient,
+    IMMDeviceEnumerator, MMDeviceEnumerator, eConsole, eRender,
 };
-use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED};
+use windows::Win32::System::Com::{
+    CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
+};
 use windows::core::Interface;
 
 use crate::capture::AudioCapture;
@@ -83,7 +85,11 @@ fn wasapi_loop(
         let capture_client: IAudioCaptureClient = audio_client.GetService()?;
         audio_client.Start()?;
 
-        tracing::info!("WASAPI: loopback started, {}Hz {}ch f32", sample_rate, channels);
+        tracing::info!(
+            "WASAPI: loopback started, {}Hz {}ch f32",
+            sample_rate,
+            channels
+        );
 
         loop {
             thread::sleep(Duration::from_millis(5));
@@ -111,10 +117,7 @@ fn wasapi_loop(
                     // AUDCLNT_BUFFERFLAGS_SILENT
                     vec![0.0f32; sample_count]
                 } else {
-                    let slice = std::slice::from_raw_parts(
-                        buffer_ptr as *const f32,
-                        sample_count,
-                    );
+                    let slice = std::slice::from_raw_parts(buffer_ptr as *const f32, sample_count);
                     slice.to_vec()
                 };
 

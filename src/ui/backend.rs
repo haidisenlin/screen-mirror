@@ -6,12 +6,12 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use crate::audio::opus_encoder::OpusEncoder;
 use crate::audio::AudioConfig;
+use crate::audio::opus_encoder::OpusEncoder;
 use crate::capture::CaptureConfig;
-#[cfg(target_os = "macos")]
-use crate::capture::macos::{native_resolution, MacOsCapture};
 use crate::capture::VideoCapture;
+#[cfg(target_os = "macos")]
+use crate::capture::macos::{MacOsCapture, native_resolution};
 use crate::discovery::browser;
 use crate::encode::{EncoderConfig, VideoEncoder};
 use crate::protocol::negotiate::*;
@@ -23,9 +23,9 @@ use crate::transport::rtp::{H264Packetizer, RtpHeader, RtpPacket};
 use crate::ui::messages::{BackendEvent, CaptureMode, StreamStats, UiCommand};
 
 #[cfg(target_os = "windows")]
-use crate::capture::windows::{DxgiCapture, WasapiCapture};
-#[cfg(target_os = "windows")]
 use crate::capture::AudioCapture;
+#[cfg(target_os = "windows")]
+use crate::capture::windows::{DxgiCapture, WasapiCapture};
 
 const VIDEO_PT: u8 = 96;
 const AUDIO_PT: u8 = 111;
@@ -38,24 +38,29 @@ pub fn spawn_mdns_browser(
     event_tx: Sender<BackendEvent>,
     shared_devices: Arc<Mutex<Vec<browser::DiscoveredReceiver>>>,
 ) -> JoinHandle<()> {
-    thread::spawn(move || loop {
-        match browser::browse(Duration::from_secs(3)) {
-            Ok(devices) => {
-                let mut seen = std::collections::HashSet::new();
-                let deduped: Vec<_> = devices
-                    .into_iter()
-                    .filter(|d| seen.insert(d.name.clone()))
-                    .collect();
-                *shared_devices.lock().unwrap() = deduped.clone();
-                if event_tx.send(BackendEvent::DevicesUpdated(deduped)).is_err() {
-                    break;
+    thread::spawn(move || {
+        loop {
+            match browser::browse(Duration::from_secs(3)) {
+                Ok(devices) => {
+                    let mut seen = std::collections::HashSet::new();
+                    let deduped: Vec<_> = devices
+                        .into_iter()
+                        .filter(|d| seen.insert(d.name.clone()))
+                        .collect();
+                    *shared_devices.lock().unwrap() = deduped.clone();
+                    if event_tx
+                        .send(BackendEvent::DevicesUpdated(deduped))
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("mDNS browse error: {e}");
                 }
             }
-            Err(e) => {
-                tracing::warn!("mDNS browse error: {e}");
-            }
+            thread::sleep(Duration::from_secs(2));
         }
-        thread::sleep(Duration::from_secs(2));
     })
 }
 
@@ -88,8 +93,7 @@ pub fn spawn_command_handler(
 
             // ── Phase 2: TCP connect + SPAKE2 pairing ────────────────────
             let pairing_result = (|| -> anyhow::Result<(SecureChannel, [u8; 32], [u8; 32])> {
-                let mut stream =
-                    TcpStream::connect_timeout(&addr, Duration::from_secs(5))?;
+                let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(5))?;
 
                 let (msg_a, state) = pairing::sender_start(&pin);
                 stream.write_all(&(msg_a.len() as u32).to_be_bytes())?;
@@ -157,8 +161,9 @@ pub fn spawn_command_handler(
                 Ok(v) => v,
                 Err(e) => {
                     let _ = channel.shutdown();
-                    let _ = event_tx
-                        .send(BackendEvent::Disconnected(format!("negotiation failed: {e}")));
+                    let _ = event_tx.send(BackendEvent::Disconnected(format!(
+                        "negotiation failed: {e}"
+                    )));
                     continue;
                 }
             };
@@ -167,7 +172,9 @@ pub fn spawn_command_handler(
                 std::net::SocketAddr::new(addr.ip(), params.receiver_udp_port);
             if let Err(e) = udp_socket.connect(receiver_media_addr) {
                 let _ = channel.shutdown();
-                let _ = event_tx.send(BackendEvent::Disconnected(format!("UDP connect failed: {e}")));
+                let _ = event_tx.send(BackendEvent::Disconnected(format!(
+                    "UDP connect failed: {e}"
+                )));
                 continue;
             }
 
@@ -212,7 +219,11 @@ pub fn spawn_command_handler(
                         active.store(false, Ordering::Relaxed);
                         break;
                     }
-                    Ok(UiCommand::StartStreaming { .. } | UiCommand::VerifyPin { .. } | UiCommand::ListWindows) => {}
+                    Ok(
+                        UiCommand::StartStreaming { .. }
+                        | UiCommand::VerifyPin { .. }
+                        | UiCommand::ListWindows,
+                    ) => {}
                     Err(_) => {
                         active.store(false, Ordering::Relaxed);
                         break;
@@ -320,11 +331,7 @@ fn query_window_size_macos(window_id: u64) -> Option<(u32, u32)> {
     let frame = window.frame();
     let w = frame.width as u32;
     let h = frame.height as u32;
-    if w > 0 && h > 0 {
-        Some((w, h))
-    } else {
-        None
-    }
+    if w > 0 && h > 0 { Some((w, h)) } else { None }
 }
 
 #[cfg(target_os = "windows")]
@@ -333,7 +340,12 @@ fn negotiate_windows(
     mode: &CaptureMode,
 ) -> anyhow::Result<(NegotiatedParams, UdpSocket)> {
     // Probe resolution via a temporary capture object.
-    let tmp_capture = DxgiCapture::new(&CaptureConfig { mode: CaptureMode::FullScreen, fps: 0, width: 0, height: 0 })?;
+    let tmp_capture = DxgiCapture::new(&CaptureConfig {
+        mode: CaptureMode::FullScreen,
+        fps: 0,
+        width: 0,
+        height: 0,
+    })?;
     let (cap_w, cap_h) = match mode {
         CaptureMode::Region { width, height, .. } => (*width as u32, *height as u32),
         _ => (tmp_capture.width(), tmp_capture.height()),
@@ -410,7 +422,9 @@ fn run_streaming_loop(
     event_tx: Sender<BackendEvent>,
     mode: CaptureMode,
 ) {
-    if let Err(e) = run_streaming_loop_inner(params, udp_socket, media_key, active, paused, &event_tx, mode) {
+    if let Err(e) = run_streaming_loop_inner(
+        params, udp_socket, media_key, active, paused, &event_tx, mode,
+    ) {
         tracing::error!("streaming error: {e}");
         let _ = event_tx.send(BackendEvent::Disconnected(e.to_string()));
     }
@@ -576,7 +590,12 @@ fn run_streaming_loop_inner(
     event_tx: &Sender<BackendEvent>,
     mode: CaptureMode,
 ) -> anyhow::Result<()> {
-    let capture = DxgiCapture::new(&CaptureConfig { mode, fps: 0, width: 0, height: 0 })?;
+    let capture = DxgiCapture::new(&CaptureConfig {
+        mode,
+        fps: 0,
+        width: 0,
+        height: 0,
+    })?;
     let audio_capture = WasapiCapture::new(48000, 2)?;
 
     let mut encoder = VideoEncoder::new_with_device(

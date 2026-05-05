@@ -17,7 +17,12 @@ pub fn render(ui: &mut Ui, device_name: &str, window_list: &[WindowInfo]) -> Mod
     ui.add_space(18.0);
     ui.horizontal(|ui| {
         ui.add_space(PADDING);
-        ui.label(RichText::new(APP_NAME).strong().size(15.0).color(COLOR_TEXT));
+        ui.label(
+            RichText::new(APP_NAME)
+                .strong()
+                .size(15.0)
+                .color(COLOR_TEXT),
+        );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.add_space(PADDING);
             Frame::new()
@@ -25,7 +30,12 @@ pub fn render(ui: &mut Ui, device_name: &str, window_list: &[WindowInfo]) -> Mod
                 .corner_radius(CornerRadius::same(10))
                 .inner_margin(egui::Margin::symmetric(8, 3))
                 .show(ui, |ui| {
-                    ui.label(RichText::new("已连接").size(11.0).color(COLOR_BRAND).strong());
+                    ui.label(
+                        RichText::new("已连接")
+                            .size(11.0)
+                            .color(COLOR_BRAND)
+                            .strong(),
+                    );
                 });
         });
     });
@@ -80,7 +90,12 @@ pub fn render(ui: &mut Ui, device_name: &str, window_list: &[WindowInfo]) -> Mod
     // Mode cards
     ui.horizontal(|ui| {
         ui.add_space(PADDING);
-        ui.label(RichText::new("投屏模式").size(11.0).color(COLOR_MUTED).strong());
+        ui.label(
+            RichText::new("投屏模式")
+                .size(11.0)
+                .color(COLOR_MUTED)
+                .strong(),
+        );
     });
     ui.add_space(6.0);
 
@@ -90,7 +105,10 @@ pub fn render(ui: &mut Ui, device_name: &str, window_list: &[WindowInfo]) -> Mod
 
         // Full screen - enabled
         let btn = Button::new(
-            RichText::new("🖥️\n全屏镜像").size(12.0).color(COLOR_TEXT).strong(),
+            RichText::new("🖥️\n全屏镜像")
+                .size(12.0)
+                .color(COLOR_TEXT)
+                .strong(),
         )
         .fill(COLOR_BG_CARD)
         .stroke(egui::Stroke::new(1.5, COLOR_BRAND))
@@ -104,7 +122,10 @@ pub fn render(ui: &mut Ui, device_name: &str, window_list: &[WindowInfo]) -> Mod
 
         // Window select - enabled
         let btn = Button::new(
-            RichText::new("🪟\n选择窗口").size(12.0).color(COLOR_TEXT).strong(),
+            RichText::new("🪟\n选择窗口")
+                .size(12.0)
+                .color(COLOR_TEXT)
+                .strong(),
         )
         .fill(COLOR_BG_CARD)
         .stroke(egui::Stroke::new(1.5, COLOR_BRAND))
@@ -118,7 +139,10 @@ pub fn render(ui: &mut Ui, device_name: &str, window_list: &[WindowInfo]) -> Mod
 
         // Custom region - enabled
         let btn = Button::new(
-            RichText::new("⬜\n自定义区域").size(12.0).color(COLOR_TEXT).strong(),
+            RichText::new("⬜\n自定义区域")
+                .size(12.0)
+                .color(COLOR_TEXT)
+                .strong(),
         )
         .fill(COLOR_BG_CARD)
         .stroke(egui::Stroke::new(1.5, COLOR_BRAND))
@@ -136,33 +160,40 @@ pub fn render(ui: &mut Ui, device_name: &str, window_list: &[WindowInfo]) -> Mod
         ui.add_space(12.0);
         ui.horizontal(|ui| {
             ui.add_space(PADDING);
-            ui.label(RichText::new("选择窗口").size(11.0).color(COLOR_MUTED).strong());
+            ui.label(
+                RichText::new("选择窗口")
+                    .size(11.0)
+                    .color(COLOR_MUTED)
+                    .strong(),
+            );
         });
         ui.add_space(4.0);
 
-        egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
-            for win in window_list {
-                ui.horizontal(|ui| {
-                    ui.add_space(PADDING);
-                    let label = if win.app_name.is_empty() {
-                        win.title.clone()
-                    } else {
-                        format!("{} — {}", win.app_name, win.title)
-                    };
-                    let btn = Button::new(RichText::new(&label).size(12.0).color(COLOR_TEXT))
-                        .fill(COLOR_BG_WHITE)
-                        .corner_radius(CornerRadius::same(ITEM_ROUNDING))
-                        .min_size(Vec2::new(PANEL_WIDTH - 32.0, 32.0));
-                    if ui.add(btn).clicked() {
-                        action = ModeAction::Start(CaptureMode::Window {
-                            id: win.id,
-                            title: win.title.clone(),
-                        });
-                    }
-                });
-                ui.add_space(2.0);
-            }
-        });
+        egui::ScrollArea::vertical()
+            .max_height(200.0)
+            .show(ui, |ui| {
+                for win in window_list {
+                    ui.horizontal(|ui| {
+                        ui.add_space(PADDING);
+                        let label = if win.app_name.is_empty() {
+                            win.title.clone()
+                        } else {
+                            format!("{} — {}", win.app_name, win.title)
+                        };
+                        let btn = Button::new(RichText::new(&label).size(12.0).color(COLOR_TEXT))
+                            .fill(COLOR_BG_WHITE)
+                            .corner_radius(CornerRadius::same(ITEM_ROUNDING))
+                            .min_size(Vec2::new(PANEL_WIDTH - 32.0, 32.0));
+                        if ui.add(btn).clicked() {
+                            action = ModeAction::Start(CaptureMode::Window {
+                                id: win.id,
+                                title: win.title.clone(),
+                            });
+                        }
+                    });
+                    ui.add_space(2.0);
+                }
+            });
     }
 
     action

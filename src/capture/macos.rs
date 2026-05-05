@@ -10,8 +10,8 @@ use screencapturekit::prelude::{
 
 use screencapturekit::cg::CGRect;
 
-use crate::ui::messages::{CaptureMode, WindowInfo};
 use super::{CaptureConfig, CaptureError, CapturedFrame, NativeFrame, VideoCapture};
+use crate::ui::messages::{CaptureMode, WindowInfo};
 
 pub fn list_windows_macos() -> Vec<WindowInfo> {
     let Ok(content) = SCShareableContent::get() else {
@@ -106,28 +106,22 @@ impl VideoCapture for MacOsCapture {
             .ok_or_else(|| anyhow::anyhow!("no display found"))?;
 
         let filter = match &config.mode {
-            CaptureMode::FullScreen => {
-                SCContentFilter::create()
-                    .with_display(&display)
-                    .with_excluding_windows(&[])
-                    .build()
-            }
+            CaptureMode::FullScreen => SCContentFilter::create()
+                .with_display(&display)
+                .with_excluding_windows(&[])
+                .build(),
             CaptureMode::Window { id, .. } => {
                 let window = content
                     .windows()
                     .into_iter()
                     .find(|w| w.window_id() as u64 == *id)
                     .ok_or_else(|| anyhow::anyhow!("window not found: {id}"))?;
-                SCContentFilter::create()
-                    .with_window(&window)
-                    .build()
+                SCContentFilter::create().with_window(&window).build()
             }
-            CaptureMode::Region { .. } => {
-                SCContentFilter::create()
-                    .with_display(&display)
-                    .with_excluding_windows(&[])
-                    .build()
-            }
+            CaptureMode::Region { .. } => SCContentFilter::create()
+                .with_display(&display)
+                .with_excluding_windows(&[])
+                .build(),
         };
 
         let (cap_w, cap_h) = match &config.mode {
@@ -155,7 +149,13 @@ impl VideoCapture for MacOsCapture {
             .with_sample_rate(48000)
             .with_channel_count(2);
 
-        if let CaptureMode::Region { x, y, width, height } = &config.mode {
+        if let CaptureMode::Region {
+            x,
+            y,
+            width,
+            height,
+        } = &config.mode
+        {
             sc_config = sc_config.with_source_rect(CGRect::new(*x, *y, *width, *height));
         }
 

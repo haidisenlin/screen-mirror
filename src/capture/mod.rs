@@ -6,9 +6,9 @@ use crate::ui::messages::{CaptureMode, WindowInfo};
 
 #[cfg(target_os = "macos")]
 pub mod macos;
+pub mod screenshot;
 #[cfg(target_os = "windows")]
 pub mod windows;
-pub mod screenshot;
 
 #[derive(Debug)]
 pub enum CaptureError {

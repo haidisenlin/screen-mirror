@@ -1,13 +1,13 @@
-use std::net::{TcpListener, TcpStream};
 use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::thread;
 
-use screen_mirror::security::pairing;
-use screen_mirror::security::cipher::Cipher;
-use screen_mirror::security::replay::ReplayWindow;
-use screen_mirror::protocol::session::SecureChannel;
 use screen_mirror::protocol::control::ControlMessage;
 use screen_mirror::protocol::negotiate::*;
+use screen_mirror::protocol::session::SecureChannel;
+use screen_mirror::security::cipher::Cipher;
+use screen_mirror::security::pairing;
+use screen_mirror::security::replay::ReplayWindow;
 
 #[test]
 fn full_pairing_and_encrypted_exchange() {
@@ -28,7 +28,9 @@ fn full_pairing_and_encrypted_exchange() {
 
         // Send pB
         let (msg_b, state) = pairing::receiver_start(pin);
-        stream.write_all(&(msg_b.len() as u32).to_be_bytes()).unwrap();
+        stream
+            .write_all(&(msg_b.len() as u32).to_be_bytes())
+            .unwrap();
         stream.write_all(&msg_b).unwrap();
 
         let keys = pairing::receiver_finish(state, &msg_a).unwrap();
@@ -54,7 +56,9 @@ fn full_pairing_and_encrypted_exchange() {
             },
             transport: AnswerTransport { udp_port: 6000 },
         };
-        channel.send(&NegotiateMessage::Answer(answer).to_bytes()).unwrap();
+        channel
+            .send(&NegotiateMessage::Answer(answer).to_bytes())
+            .unwrap();
 
         // Receive ping
         let msg_bytes = channel.recv().unwrap().unwrap();
@@ -71,7 +75,9 @@ fn full_pairing_and_encrypted_exchange() {
     let mut stream = TcpStream::connect(addr).unwrap();
 
     let (msg_a, state) = pairing::sender_start(pin);
-    stream.write_all(&(msg_a.len() as u32).to_be_bytes()).unwrap();
+    stream
+        .write_all(&(msg_a.len() as u32).to_be_bytes())
+        .unwrap();
     stream.write_all(&msg_a).unwrap();
 
     let mut len_buf = [0u8; 4];
@@ -103,7 +109,9 @@ fn full_pairing_and_encrypted_exchange() {
             fec_group_size: 6,
         },
     };
-    channel.send(&NegotiateMessage::Offer(offer).to_bytes()).unwrap();
+    channel
+        .send(&NegotiateMessage::Offer(offer).to_bytes())
+        .unwrap();
 
     // Receive answer
     let answer_bytes = channel.recv().unwrap().unwrap();

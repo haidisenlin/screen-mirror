@@ -11,11 +11,11 @@ use winit::event::WindowEvent;
 use winit::event_loop::EventLoop;
 use winit::window::Window;
 
+use screen_mirror::audio::AudioConfig;
 use screen_mirror::audio::opus_decoder::OpusDecoder;
 use screen_mirror::audio::output::AudioOutput;
-use screen_mirror::audio::AudioConfig;
-use screen_mirror::decode::videotoolbox::VTDecoder;
 use screen_mirror::decode::DecoderConfig;
+use screen_mirror::decode::videotoolbox::VTDecoder;
 use screen_mirror::discovery::advertiser::Advertiser;
 use screen_mirror::protocol::negotiate::*;
 use screen_mirror::protocol::session::SecureChannel;
@@ -230,14 +230,16 @@ impl ApplicationHandler for App {
                 self.poll_packets();
 
                 if let Some(ref audio_output) = self.audio_output {
-                    self.sync_state.report_audio_played(audio_output.samples_played());
+                    self.sync_state
+                        .report_audio_played(audio_output.samples_played());
                 }
 
                 if let Some(frame) = self.decoder.next_frame() {
                     if let Some(renderer) = &mut self.renderer {
                         let _ = unsafe { renderer.render_pixel_buffer(frame.pixel_buffer) };
                         self.frames_rendered += 1;
-                        self.sync_state.report_video_rendered(frame.timestamp as u32);
+                        self.sync_state
+                            .report_video_rendered(frame.timestamp as u32);
                         if self.frames_rendered.is_multiple_of(60) {
                             tracing::info!("rendered {} frames", self.frames_rendered);
                         }
@@ -314,7 +316,8 @@ fn main() -> Result<()> {
     // Spawn HTTP verify-pin server
     let pin = pairing::generate_pin();
     let shared_pin = Arc::new(Mutex::new(pin.clone()));
-    let (http_port, _http_handle) = spawn_verify_pin_server(shared_pin.clone(), device_name.clone());
+    let (http_port, _http_handle) =
+        spawn_verify_pin_server(shared_pin.clone(), device_name.clone());
     tracing::info!("HTTP verify-pin server on port {http_port}");
 
     let (advertiser, listener) = Advertiser::new(&device_name, http_port)?;
@@ -354,7 +357,9 @@ fn main() -> Result<()> {
         }
 
         let (msg_b, state) = pairing::receiver_start(&pin);
-        if tcp_stream.write_all(&(msg_b.len() as u32).to_be_bytes()).is_err()
+        if tcp_stream
+            .write_all(&(msg_b.len() as u32).to_be_bytes())
+            .is_err()
             || tcp_stream.write_all(&msg_b).is_err()
         {
             tracing::warn!("failed to send pairing response, restarting");
@@ -415,16 +420,26 @@ fn main() -> Result<()> {
                 sample_rate: 48000,
                 channels: 2,
             },
-            transport: AnswerTransport { udp_port: receiver_udp_port },
+            transport: AnswerTransport {
+                udp_port: receiver_udp_port,
+            },
         };
-        if channel.send(&NegotiateMessage::Answer(answer.clone()).to_bytes()).is_err() {
+        if channel
+            .send(&NegotiateMessage::Answer(answer.clone()).to_bytes())
+            .is_err()
+        {
             tracing::warn!("failed to send answer, restarting");
             let _ = advertiser.reregister(&device_name);
             continue;
         }
 
         let params = NegotiatedParams::resolve(&offer, &answer);
-        tracing::info!("negotiated: {}x{} @ {}fps", params.video_width, params.video_height, params.video_fps);
+        tracing::info!(
+            "negotiated: {}x{} @ {}fps",
+            params.video_width,
+            params.video_height,
+            params.video_fps
+        );
         channel.set_read_timeout(None)?;
 
         let media_cipher = Cipher::new(&keys.media_key, [0, 0, 0, 1]);

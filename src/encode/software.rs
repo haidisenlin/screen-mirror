@@ -1,8 +1,8 @@
 use std::sync::mpsc::{self, Receiver, SyncSender};
 
 use windows::Win32::Graphics::Direct3D11::{
-    ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D, D3D11_CPU_ACCESS_READ,
-    D3D11_MAPPED_SUBRESOURCE, D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING,
+    D3D11_CPU_ACCESS_READ, D3D11_MAPPED_SUBRESOURCE, D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING,
+    ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
 };
 use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_NV12, DXGI_SAMPLE_DESC};
 
@@ -25,7 +25,10 @@ impl X264Encoder {
 
         tracing::info!(
             "x264/software: initialized {}x{} @ {}fps, {}bps",
-            config.width, config.height, config.fps, config.bitrate
+            config.width,
+            config.height,
+            config.fps,
+            config.bitrate
         );
 
         Ok(Self {
@@ -36,7 +39,11 @@ impl X264Encoder {
         })
     }
 
-    pub fn encode_nv12(&mut self, nv12_texture: &ID3D11Texture2D, timestamp_ns: u64) -> anyhow::Result<()> {
+    pub fn encode_nv12(
+        &mut self,
+        nv12_texture: &ID3D11Texture2D,
+        timestamp_ns: u64,
+    ) -> anyhow::Result<()> {
         unsafe {
             // Create a staging texture for CPU readback
             let mut desc = D3D11_TEXTURE2D_DESC::default();
@@ -48,7 +55,10 @@ impl X264Encoder {
                 MipLevels: 1,
                 ArraySize: 1,
                 Format: DXGI_FORMAT_NV12,
-                SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+                SampleDesc: DXGI_SAMPLE_DESC {
+                    Count: 1,
+                    Quality: 0,
+                },
                 Usage: D3D11_USAGE_STAGING,
                 BindFlags: windows::Win32::Graphics::Direct3D11::D3D11_BIND_FLAG(0),
                 CPUAccessFlags: D3D11_CPU_ACCESS_READ,
