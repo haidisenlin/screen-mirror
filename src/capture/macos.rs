@@ -203,7 +203,7 @@ impl VideoCapture for MacOsCapture {
         };
         let timestamp_ns = sample.display_time().unwrap_or_else(|| {
             let t = sample.presentation_timestamp();
-            (t.value as u64 * 1_000_000_000) / t.timescale as u64
+            cmtime_to_nanos(t.value as u64, t.timescale as u64)
         });
         Ok(Some(CapturedFrame {
             native: pixel_buffer.as_ptr() as NativeFrame,
@@ -219,6 +219,14 @@ impl MacOsCapture {
     }
 }
 
+fn cmtime_to_nanos(value: u64, timescale: u64) -> u64 {
+    if timescale == 0 {
+        0
+    } else {
+        (value * 1_000_000_000) / timescale
+    }
+}
+
 fn extract_audio_pcm(sample: &CMSampleBuffer) -> Option<Vec<f32>> {
     let buffer_list = sample.audio_buffer_list()?;
     let mut pcm = Vec::new();
@@ -231,4 +239,24 @@ fn extract_audio_pcm(sample: &CMSampleBuffer) -> Option<Vec<f32>> {
         }
     }
     if pcm.is_empty() { None } else { Some(pcm) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cmtime_to_nanos_zero_timescale_returns_zero() {
+        assert_eq!(cmtime_to_nanos(12345, 0), 0);
+    }
+
+    #[test]
+    fn cmtime_to_nanos_normal_conversion() {
+        // 1 second at timescale 1000 = 1_000_000_000 ns
+        assert_eq!(cmtime_to_nanos(1000, 1000), 1_000_000_000);
+        // 48000 samples at 48kHz = 1 second
+        assert_eq!(cmtime_to_nanos(48000, 48000), 1_000_000_000);
+        // Half a second at timescale 600
+        assert_eq!(cmtime_to_nanos(300, 600), 500_000_000);
+    }
 }

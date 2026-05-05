@@ -271,6 +271,11 @@ impl AppCore {
         }
     }
 
+    fn handle_region_confirmed(&mut self, device_name: String) {
+        self.region_select = None;
+        self.state = AppState::ModeSelect { device_name };
+    }
+
     #[cfg(debug_assertions)]
     fn handle_debug_keys(&mut self, ctx: &egui::Context) {
         use crate::discovery::browser::DiscoveredReceiver;
@@ -436,7 +441,7 @@ impl AppCore {
                                 height: region.height,
                             };
                             let _ = self.cmd_tx.send(UiCommand::StartStreaming { mode });
-                            self.region_select = None;
+                            self.handle_region_confirmed(device_name);
                         }
                         RegionAction::Cancelled => {
                             self.region_select = None;
@@ -1693,6 +1698,67 @@ mod tests {
             .unwrap();
         core.process_backend_events();
         assert!(matches!(core.state, AppState::ModeSelect { .. }));
+    }
+
+    // ── Region confirm → StreamingStarted must reach Streaming ──
+
+    #[test]
+    fn streaming_started_after_region_confirm_transitions_to_streaming() {
+        let (mut core, evt_tx, _cmd_rx) = make_core();
+        // Simulate the state after region confirm: must be ModeSelect
+        // so that StreamingStarted can transition to Streaming.
+        // The bug: if confirm leaves state as RegionSelect, StreamingStarted is ignored.
+        core.state = AppState::RegionSelect {
+            device_name: "TV".to_string(),
+        };
+        core.region_select = None;
+        // Call the extracted confirm helper
+        core.handle_region_confirmed("TV".to_string());
+
+        // After confirm, state must be ModeSelect
+        assert!(
+            matches!(core.state, AppState::ModeSelect { .. }),
+            "expected ModeSelect after region confirm, got {:?}",
+            std::mem::discriminant(&core.state)
+        );
+
+        // StreamingStarted should transition to Streaming
+        evt_tx.send(BackendEvent::StreamingStarted).unwrap();
+        core.process_backend_events();
+        assert!(matches!(core.state, AppState::Streaming { .. }));
+    }
+
+    // ── CaptureTargetLost from Streaming → ModeSelect with session_gen ──
+
+    #[test]
+    fn capture_target_lost_from_streaming_returns_to_mode_select() {
+        let (mut core, evt_tx, _cmd_rx) = make_core();
+        core.state = AppState::Streaming {
+            device_name: "TV".to_string(),
+            stats: StreamStats {
+                resolution_w: 1920,
+                resolution_h: 1080,
+                fps: 60.0,
+                bitrate_bps: 5_000_000,
+                latency_ms: 10.0,
+                packet_loss_pct: 0.0,
+            },
+        };
+        let gen_before = core.session_gen;
+
+        evt_tx
+            .send(BackendEvent::CaptureTargetLost {
+                reason: "window closed".to_string(),
+            })
+            .unwrap();
+        core.process_backend_events();
+
+        assert!(matches!(core.state, AppState::ModeSelect { .. }));
+        if let AppState::ModeSelect { device_name } = &core.state {
+            assert_eq!(device_name, "TV");
+        }
+        assert_eq!(core.session_gen, gen_before + 1);
+        assert!(core.window_list.is_empty());
     }
 
     #[test]
