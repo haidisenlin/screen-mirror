@@ -23,6 +23,9 @@ pub enum AppState {
     ModeSelect {
         device_name: String,
     },
+    RegionSelect {
+        device_name: String,
+    },
     Streaming {
         device_name: String,
         stats: StreamStats,
@@ -42,6 +45,7 @@ struct AppCore {
     cmd_tx: mpsc::Sender<UiCommand>,
     event_rx: mpsc::Receiver<BackendEvent>,
     window_list: Vec<WindowInfo>,
+    session_gen: u64,
 }
 
 impl AppCore {
@@ -63,6 +67,7 @@ impl AppCore {
             cmd_tx,
             event_rx,
             window_list: Vec::new(),
+            session_gen: 0,
         }
     }
 
@@ -88,6 +93,8 @@ impl AppCore {
                             self.idle_view.connecting = false;
                             self.idle_view.connecting_device = None;
                             self.idle_view.error = None;
+                            self.session_gen += 1;
+                            self.window_list.clear();
                             self.state = AppState::ModeSelect { device_name };
                         }
                     }
@@ -145,7 +152,16 @@ impl AppCore {
                 BackendEvent::WindowList(list) => {
                     self.window_list = list;
                 }
-                BackendEvent::CaptureTargetLost { .. } => {}
+                BackendEvent::CaptureTargetLost { reason: _ } => {
+                    if let AppState::Streaming { device_name, .. }
+                    | AppState::Paused { device_name } =
+                        std::mem::replace(&mut self.state, AppState::Idle)
+                    {
+                        self.session_gen += 1;
+                        self.window_list.clear();
+                        self.state = AppState::ModeSelect { device_name };
+                    }
+                }
             }
         }
     }
@@ -342,6 +358,13 @@ impl AppCore {
                         // Will be fully wired in Task 9
                     }
                     ModeAction::None => {}
+                }
+            }
+            AppState::RegionSelect { device_name } => {
+                let device_name = device_name.clone();
+                // For now, Escape returns to ModeSelect
+                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    self.state = AppState::ModeSelect { device_name };
                 }
             }
             AppState::Streaming { device_name, stats } => {
@@ -1386,5 +1409,45 @@ mod tests {
         assert!(matches!(core.idle_view.pin_verify_state, PinVerifyState::Verifying { .. }));
         let cmd = cmd_rx.try_recv().unwrap();
         assert!(matches!(cmd, UiCommand::VerifyPin { .. }));
+    }
+
+    #[test]
+    fn window_list_event_populates_list() {
+        let (mut core, evt_tx, _cmd_rx) = make_core();
+        core.state = AppState::ModeSelect { device_name: "TV".to_string() };
+        evt_tx.send(BackendEvent::WindowList(vec![
+            WindowInfo { id: 1, title: "Browser".to_string(), app_name: "Firefox".to_string() },
+        ])).unwrap();
+        core.process_backend_events();
+        assert_eq!(core.window_list.len(), 1);
+        assert_eq!(core.window_list[0].title, "Browser");
+    }
+
+    #[test]
+    fn capture_target_lost_returns_to_mode_select() {
+        let (mut core, evt_tx, _cmd_rx) = make_core();
+        core.state = AppState::Streaming {
+            device_name: "TV".to_string(),
+            stats: StreamStats {
+                resolution_w: 0, resolution_h: 0, fps: 0.0,
+                bitrate_bps: 0, latency_ms: 0.0, packet_loss_pct: 0.0,
+            },
+        };
+        evt_tx.send(BackendEvent::CaptureTargetLost { reason: "window closed".to_string() }).unwrap();
+        core.process_backend_events();
+        assert!(matches!(core.state, AppState::ModeSelect { .. }));
+    }
+
+    #[test]
+    fn session_gen_increments_on_mode_select_entry() {
+        let (mut core, evt_tx, _cmd_rx) = make_core();
+        let initial_gen = core.session_gen;
+        core.state = AppState::Connecting {
+            device_name: "TV".to_string(),
+            started_at: Instant::now(),
+        };
+        evt_tx.send(BackendEvent::PairingSuccess).unwrap();
+        core.process_backend_events();
+        assert_eq!(core.session_gen, initial_gen + 1);
     }
 }
