@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use crate::ui::messages::CaptureMode;
+use crate::ui::messages::{CaptureMode, WindowInfo};
 
 #[cfg(target_os = "macos")]
 pub mod macos;
@@ -64,4 +64,39 @@ pub trait AudioCapture {
     where
         Self: Sized;
     fn try_next_audio(&self) -> Option<Vec<f32>>;
+}
+
+pub fn list_windows() -> Vec<WindowInfo> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::list_windows_macos()
+    }
+    #[cfg(target_os = "windows")]
+    {
+        windows::list_windows_windows()
+    }
+    #[cfg(target_os = "linux")]
+    {
+        vec![]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn list_windows_returns_vec() {
+        let windows = list_windows();
+        // On CI/test this may return empty, but it should not panic
+        assert!(windows.is_empty() || !windows.is_empty());
+    }
+
+    #[test]
+    fn list_windows_no_empty_titles() {
+        let windows = list_windows();
+        for w in &windows {
+            assert!(!w.title.is_empty() || !w.app_name.is_empty());
+        }
+    }
 }

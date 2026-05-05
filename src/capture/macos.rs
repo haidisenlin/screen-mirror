@@ -8,7 +8,34 @@ use screencapturekit::prelude::{
     SCStreamOutputType,
 };
 
+use crate::ui::messages::WindowInfo;
 use super::{CaptureConfig, CaptureError, CapturedFrame, NativeFrame, VideoCapture};
+
+pub fn list_windows_macos() -> Vec<WindowInfo> {
+    let Ok(content) = SCShareableContent::get() else {
+        return vec![];
+    };
+    content
+        .windows()
+        .into_iter()
+        .filter(|w| w.is_on_screen() && w.window_layer() == 0)
+        .filter_map(|w| {
+            let title = w.title().unwrap_or_default();
+            let app_name = w
+                .owning_application()
+                .map(|a| a.application_name())
+                .unwrap_or_default();
+            if title.is_empty() && app_name.is_empty() {
+                return None;
+            }
+            Some(WindowInfo {
+                id: w.window_id() as u64,
+                title,
+                app_name,
+            })
+        })
+        .collect()
+}
 
 type CGDisplayModeRef = *mut std::ffi::c_void;
 
