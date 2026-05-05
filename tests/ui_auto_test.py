@@ -15,7 +15,7 @@ from Quartz import (
     kCGEventLeftMouseUp, kCGMouseButtonLeft, kCGHIDEventTap,
     CGEventCreateKeyboardEvent, CGEventSetFlags,
     kCGEventFlagMaskShift, CGWindowListCopyWindowInfo,
-    kCGWindowListOptionOnScreenOnly, kCGNullWindowID,
+    kCGWindowListOptionOnScreenOnly, kCGWindowListOptionAll, kCGNullWindowID,
     CGEventCreateScrollWheelEvent, kCGScrollEventUnitLine,
     CGEventPostToPid, kCGEventLeftMouseDragged,
 )
@@ -51,12 +51,14 @@ def screenshot_window(name, window_id=None):
     return path
 
 def find_app_window():
-    windows = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID)
+    windows = CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID)
     for w in windows:
-        name = w.get("kCGWindowName", "")
         owner = w.get("kCGWindowOwnerName", "")
-        if "screen-mirror" in str(name) or "sender" in str(owner):
+        if owner == "sender":
             bounds = w.get("kCGWindowBounds", {})
+            if bounds.get("Width", 0) == 0 and bounds.get("Height", 0) == 0:
+                continue
+            name = w.get("kCGWindowName", "")
             wid = w.get("kCGWindowNumber", 0)
             return {
                 "id": wid,
