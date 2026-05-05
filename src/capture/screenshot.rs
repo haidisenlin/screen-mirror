@@ -70,22 +70,7 @@ fn take_screenshot_macos() -> Result<Screenshot> {
         let len = CFDataGetLength(data) as usize;
         let raw = std::slice::from_raw_parts(ptr, len);
 
-        // Convert BGRA to RGBA, handling stride (bytes_per_row may include padding)
-        let mut rgba = Vec::with_capacity((width * height * 4) as usize);
-        for y in 0..height as usize {
-            let row_start = y * bytes_per_row;
-            for x in 0..width as usize {
-                let offset = row_start + x * 4;
-                let b = raw[offset];
-                let g = raw[offset + 1];
-                let r = raw[offset + 2];
-                let a = raw[offset + 3];
-                rgba.push(r);
-                rgba.push(g);
-                rgba.push(b);
-                rgba.push(a);
-            }
-        }
+        let rgba = bgra_to_rgba(raw, width, height, bytes_per_row);
 
         CFRelease(data);
         CGImageRelease(image);
@@ -96,6 +81,25 @@ fn take_screenshot_macos() -> Result<Screenshot> {
             rgba,
         })
     }
+}
+
+pub(crate) fn bgra_to_rgba(bgra: &[u8], width: u32, height: u32, bytes_per_row: usize) -> Vec<u8> {
+    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+    for y in 0..height as usize {
+        let row_start = y * bytes_per_row;
+        for x in 0..width as usize {
+            let offset = row_start + x * 4;
+            let b = bgra[offset];
+            let g = bgra[offset + 1];
+            let r = bgra[offset + 2];
+            let a = bgra[offset + 3];
+            rgba.push(r);
+            rgba.push(g);
+            rgba.push(b);
+            rgba.push(a);
+        }
+    }
+    rgba
 }
 
 #[cfg(target_os = "windows")]
@@ -110,5 +114,51 @@ mod tests {
     #[test]
     fn take_screenshot_does_not_panic() {
         let _ = take_screenshot();
+    }
+
+    #[test]
+    fn bgra_to_rgba_single_pixel() {
+        // BGRA: B=10, G=20, R=30, A=255
+        let bgra = vec![10, 20, 30, 255];
+        let rgba = bgra_to_rgba(&bgra, 1, 1, 4);
+        assert_eq!(rgba, vec![30, 20, 10, 255]);
+    }
+
+    #[test]
+    fn bgra_to_rgba_with_stride_padding() {
+        // 2x1 image with bytes_per_row=16 (8 bytes of pixels + 8 bytes padding)
+        let mut bgra = vec![0u8; 16];
+        // Pixel (0,0): B=1, G=2, R=3, A=4
+        bgra[0] = 1;
+        bgra[1] = 2;
+        bgra[2] = 3;
+        bgra[3] = 4;
+        // Pixel (1,0): B=5, G=6, R=7, A=8
+        bgra[4] = 5;
+        bgra[5] = 6;
+        bgra[6] = 7;
+        bgra[7] = 8;
+        // Bytes 8..15 are stride padding
+
+        let rgba = bgra_to_rgba(&bgra, 2, 1, 16);
+        assert_eq!(rgba, vec![3, 2, 1, 4, 7, 6, 5, 8]);
+    }
+
+    #[test]
+    fn bgra_to_rgba_multi_row() {
+        // 2x2 image, no padding (bytes_per_row = 8)
+        let bgra = vec![
+            // Row 0: pixel(0,0) BGRA, pixel(1,0) BGRA
+            100, 150, 200, 255, 50, 60, 70, 128, // Row 1: pixel(0,1) BGRA, pixel(1,1) BGRA
+            10, 20, 30, 255, 0, 0, 0, 0,
+        ];
+        let rgba = bgra_to_rgba(&bgra, 2, 2, 8);
+        assert_eq!(
+            rgba,
+            vec![
+                200, 150, 100, 255, 70, 60, 50, 128, // Row 0 in RGBA
+                30, 20, 10, 255, 0, 0, 0, 0, // Row 1 in RGBA
+            ]
+        );
     }
 }
