@@ -140,6 +140,8 @@ impl AppCore {
                     self.idle_view.connecting_device = None;
                     self.state = AppState::Idle;
                 }
+                BackendEvent::WindowList(_) => {}
+                BackendEvent::CaptureTargetLost { .. } => {}
             }
         }
     }

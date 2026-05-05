@@ -14,7 +14,7 @@ use windows::Win32::Graphics::Dxgi::{
 };
 use windows::core::Interface;
 
-use crate::capture::{CaptureConfig, CapturedFrame, NativeFrame, VideoCapture};
+use crate::capture::{CaptureConfig, CaptureError, CapturedFrame, NativeFrame, VideoCapture};
 
 struct DxgiState {
     device: ID3D11Device,
@@ -62,8 +62,11 @@ impl VideoCapture for DxgiCapture {
         self.height
     }
 
-    fn next_frame(&self) -> Option<CapturedFrame> {
-        self.rx.recv().ok()
+    fn next_frame(&self) -> Result<Option<CapturedFrame>, CaptureError> {
+        match self.rx.recv() {
+            Ok(frame) => Ok(Some(frame)),
+            Err(_) => Ok(None),
+        }
     }
 }
 

@@ -20,7 +20,7 @@ use crate::security::cipher::Cipher;
 use crate::security::pairing;
 use crate::transport::fec::FecEncoder;
 use crate::transport::rtp::{H264Packetizer, RtpHeader, RtpPacket};
-use crate::ui::messages::{BackendEvent, StreamStats, UiCommand};
+use crate::ui::messages::{BackendEvent, CaptureMode, StreamStats, UiCommand};
 
 #[cfg(target_os = "windows")]
 use crate::capture::windows::{DxgiCapture, WasapiCapture};
@@ -206,7 +206,7 @@ pub fn spawn_command_handler(
                         active.store(false, Ordering::Relaxed);
                         break;
                     }
-                    Ok(UiCommand::StartStreaming { .. } | UiCommand::VerifyPin { .. }) => {}
+                    Ok(UiCommand::StartStreaming { .. } | UiCommand::VerifyPin { .. } | UiCommand::ListWindows) => {}
                     Err(_) => {
                         active.store(false, Ordering::Relaxed);
                         break;
@@ -301,7 +301,7 @@ fn negotiate_windows(
     channel: &mut SecureChannel,
 ) -> anyhow::Result<(NegotiatedParams, UdpSocket)> {
     // Probe resolution via a temporary capture object.
-    let tmp_capture = DxgiCapture::new(&CaptureConfig { fps: 0, width: 0, height: 0 })?;
+    let tmp_capture = DxgiCapture::new(&CaptureConfig { mode: CaptureMode::FullScreen, fps: 0, width: 0, height: 0 })?;
     let cap_w = tmp_capture.width();
     let cap_h = tmp_capture.height();
 
@@ -391,6 +391,7 @@ fn run_streaming_loop_inner(
     event_tx: &Sender<BackendEvent>,
 ) -> anyhow::Result<()> {
     let capture = MacOsCapture::new(&CaptureConfig {
+        mode: CaptureMode::FullScreen,
         fps: 0,
         width: params.video_width,
         height: params.video_height,
@@ -436,8 +437,10 @@ fn run_streaming_loop_inner(
             continue;
         }
 
-        let Some(frame) = capture.next_frame() else {
-            continue;
+        let frame = match capture.next_frame() {
+            Ok(Some(f)) => f,
+            Ok(None) => continue,
+            Err(_e) => break,
         };
 
         encoder.encode(frame)?;
@@ -536,7 +539,7 @@ fn run_streaming_loop_inner(
     paused: Arc<AtomicBool>,
     event_tx: &Sender<BackendEvent>,
 ) -> anyhow::Result<()> {
-    let capture = DxgiCapture::new(&CaptureConfig { fps: 0, width: 0, height: 0 })?;
+    let capture = DxgiCapture::new(&CaptureConfig { mode: CaptureMode::FullScreen, fps: 0, width: 0, height: 0 })?;
     let audio_capture = WasapiCapture::new(48000, 2)?;
 
     let mut encoder = VideoEncoder::new_with_device(
@@ -582,8 +585,10 @@ fn run_streaming_loop_inner(
             continue;
         }
 
-        let Some(frame) = capture.next_frame() else {
-            continue;
+        let frame = match capture.next_frame() {
+            Ok(Some(f)) => f,
+            Ok(None) => continue,
+            Err(_e) => break,
         };
 
         encoder.encode(frame)?;

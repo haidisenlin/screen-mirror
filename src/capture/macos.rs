@@ -8,7 +8,7 @@ use screencapturekit::prelude::{
     SCStreamOutputType,
 };
 
-use super::{CaptureConfig, CapturedFrame, NativeFrame, VideoCapture};
+use super::{CaptureConfig, CaptureError, CapturedFrame, NativeFrame, VideoCapture};
 
 type CGDisplayModeRef = *mut std::ffi::c_void;
 
@@ -130,17 +130,23 @@ impl VideoCapture for MacOsCapture {
         self.height
     }
 
-    fn next_frame(&self) -> Option<CapturedFrame> {
-        let sample = self.video_rx.recv().ok()?;
-        let pixel_buffer = sample.image_buffer()?;
+    fn next_frame(&self) -> Result<Option<CapturedFrame>, CaptureError> {
+        let sample = match self.video_rx.recv() {
+            Ok(s) => s,
+            Err(_) => return Ok(None),
+        };
+        let pixel_buffer = match sample.image_buffer() {
+            Some(buf) => buf,
+            None => return Ok(None),
+        };
         let timestamp_ns = sample.display_time().unwrap_or_else(|| {
             let t = sample.presentation_timestamp();
             (t.value as u64 * 1_000_000_000) / t.timescale as u64
         });
-        Some(CapturedFrame {
+        Ok(Some(CapturedFrame {
             native: pixel_buffer.as_ptr() as NativeFrame,
             timestamp_ns,
-        })
+        }))
     }
 }
 
