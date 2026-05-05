@@ -128,9 +128,13 @@ pub fn spawn_command_handler(
             };
 
             // ── Phase 3: wait for StartStreaming ─────────────────────────
-            loop {
+            let capture_mode = loop {
                 match cmd_rx.recv() {
-                    Ok(UiCommand::StartStreaming { .. }) => break,
+                    Ok(UiCommand::StartStreaming { mode }) => break mode,
+                    Ok(UiCommand::ListWindows) => {
+                        let windows = crate::capture::list_windows();
+                        let _ = event_tx.send(BackendEvent::WindowList(windows));
+                    }
                     Ok(UiCommand::Disconnect) => {
                         let _ = channel.shutdown();
                         let _ = event_tx.send(BackendEvent::Disconnected(String::new()));
@@ -139,15 +143,15 @@ pub fn spawn_command_handler(
                     Ok(_) => {} // ignore Pause/Resume before streaming
                     Err(_) => return,
                 }
-            }
+            };
 
             // Perform negotiation before starting the streaming sub-thread.
             // If negotiation fails, send Disconnected and restart.
             #[cfg(target_os = "macos")]
-            let negotiate_result = negotiate_macos(&mut channel);
+            let negotiate_result = negotiate_macos(&mut channel, &capture_mode);
 
             #[cfg(target_os = "windows")]
-            let negotiate_result = negotiate_windows(&mut channel);
+            let negotiate_result = negotiate_windows(&mut channel, &capture_mode);
 
             let (params, udp_socket) = match negotiate_result {
                 Ok(v) => v,
@@ -175,6 +179,7 @@ pub fn spawn_command_handler(
             let paused_sub = Arc::clone(&paused);
             let event_tx_sub = event_tx.clone();
 
+            let mode_clone = capture_mode.clone();
             let streaming_handle = thread::spawn(move || {
                 run_streaming_loop(
                     params,
@@ -183,6 +188,7 @@ pub fn spawn_command_handler(
                     active_sub,
                     paused_sub,
                     event_tx_sub,
+                    mode_clone,
                 );
             });
 
@@ -263,8 +269,15 @@ fn handle_verify_pin(
 #[cfg(target_os = "macos")]
 fn negotiate_macos(
     channel: &mut SecureChannel,
+    mode: &CaptureMode,
 ) -> anyhow::Result<(NegotiatedParams, UdpSocket)> {
-    let (cap_w, cap_h) = native_resolution();
+    let (cap_w, cap_h) = match mode {
+        CaptureMode::FullScreen => native_resolution(),
+        CaptureMode::Window { id, .. } => {
+            query_window_size_macos(*id).unwrap_or_else(native_resolution)
+        }
+        CaptureMode::Region { width, height, .. } => (*width as u32, *height as u32),
+    };
 
     let pixels = cap_w as u64 * cap_h as u64;
     let bitrate = ((pixels * 15_000_000 / (1920 * 1080)) as u32).min(40_000_000);
@@ -296,14 +309,35 @@ fn negotiate_macos(
     do_negotiate(channel, offer, udp_socket)
 }
 
+#[cfg(target_os = "macos")]
+fn query_window_size_macos(window_id: u64) -> Option<(u32, u32)> {
+    use screencapturekit::prelude::SCShareableContent;
+    let content = SCShareableContent::get().ok()?;
+    let window = content
+        .windows()
+        .into_iter()
+        .find(|w| w.window_id() as u64 == window_id)?;
+    let frame = window.frame();
+    let w = frame.width as u32;
+    let h = frame.height as u32;
+    if w > 0 && h > 0 {
+        Some((w, h))
+    } else {
+        None
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn negotiate_windows(
     channel: &mut SecureChannel,
+    mode: &CaptureMode,
 ) -> anyhow::Result<(NegotiatedParams, UdpSocket)> {
     // Probe resolution via a temporary capture object.
     let tmp_capture = DxgiCapture::new(&CaptureConfig { mode: CaptureMode::FullScreen, fps: 0, width: 0, height: 0 })?;
-    let cap_w = tmp_capture.width();
-    let cap_h = tmp_capture.height();
+    let (cap_w, cap_h) = match mode {
+        CaptureMode::Region { width, height, .. } => (*width as u32, *height as u32),
+        _ => (tmp_capture.width(), tmp_capture.height()),
+    };
 
     let pixels = cap_w as u64 * cap_h as u64;
     let bitrate = ((pixels * 15_000_000 / (1920 * 1080)) as u32).min(40_000_000);
@@ -374,8 +408,9 @@ fn run_streaming_loop(
     active: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
     event_tx: Sender<BackendEvent>,
+    mode: CaptureMode,
 ) {
-    if let Err(e) = run_streaming_loop_inner(params, udp_socket, media_key, active, paused, &event_tx) {
+    if let Err(e) = run_streaming_loop_inner(params, udp_socket, media_key, active, paused, &event_tx, mode) {
         tracing::error!("streaming error: {e}");
         let _ = event_tx.send(BackendEvent::Disconnected(e.to_string()));
     }
@@ -389,9 +424,10 @@ fn run_streaming_loop_inner(
     active: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
     event_tx: &Sender<BackendEvent>,
+    mode: CaptureMode,
 ) -> anyhow::Result<()> {
     let capture = MacOsCapture::new(&CaptureConfig {
-        mode: CaptureMode::FullScreen,
+        mode,
         fps: 0,
         width: params.video_width,
         height: params.video_height,
@@ -538,8 +574,9 @@ fn run_streaming_loop_inner(
     active: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
     event_tx: &Sender<BackendEvent>,
+    mode: CaptureMode,
 ) -> anyhow::Result<()> {
-    let capture = DxgiCapture::new(&CaptureConfig { mode: CaptureMode::FullScreen, fps: 0, width: 0, height: 0 })?;
+    let capture = DxgiCapture::new(&CaptureConfig { mode, fps: 0, width: 0, height: 0 })?;
     let audio_capture = WasapiCapture::new(48000, 2)?;
 
     let mut encoder = VideoEncoder::new_with_device(
